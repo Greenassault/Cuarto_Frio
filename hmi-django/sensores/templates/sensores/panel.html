@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cuarto frío</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 24px;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      font-family: system-ui, sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+    }
+    h1 { margin: 0 0 4px; }
+    #estado { color: #94a3b8; }
+    #estado.sin-datos { color: #fca5a5; font-weight: 600; }
+    .enlace {
+      color: #e2e8f0;
+      background: #1e293b;
+      padding: 10px 16px;
+      border-radius: 8px;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+    .enlace:hover { background: #334155; }
+    .cuarto {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      margin-top: 16px;
+    }
+    h2.seccion { margin: 0 0 12px; font-size: 1.4rem; color: #cbd5e1; }
+    .tarjetas {
+      flex: 1;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+    }
+    .tarjeta {
+      background: #1e293b;
+      border-radius: 12px;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      transition: background 0.3s;
+    }
+    .tarjeta h3 {
+      margin: 0 0 12px;
+      font-size: clamp(1rem, 1.6vw, 1.5rem);
+      color: #94a3b8;
+    }
+    .valor { font-size: clamp(2.2rem, 5vw, 5rem); font-weight: 700; }
+    .alerta { background: #7f1d1d; }
+    @media (max-width: 700px) {
+      .tarjetas { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Cuarto frío</h1>
+      <div id="estado">Conectando...</div>
+    </div>
+    <a class="enlace" href="/historial/">Ver historial</a>
+  </header>
+
+  <div class="cuarto">
+    <h2 class="seccion">Cuarto frío 1</h2>
+    <div class="tarjetas">
+      <div class="tarjeta"><h3>Temperatura</h3><div class="valor" id="temp_1">--</div></div>
+      <div class="tarjeta"><h3>Humedad</h3><div class="valor" id="hum_1">--</div></div>
+      <div class="tarjeta" id="tarjeta-presencia_1"><h3>Presencia</h3><div class="valor" id="presencia_1">--</div></div>
+    </div>
+  </div>
+
+  <div class="cuarto">
+    <h2 class="seccion">Cuarto frío 2</h2>
+    <div class="tarjetas">
+      <div class="tarjeta"><h3>Temperatura</h3><div class="valor" id="temp_2">--</div></div>
+      <div class="tarjeta"><h3>Humedad</h3><div class="valor" id="hum_2">--</div></div>
+      <div class="tarjeta" id="tarjeta-presencia_2"><h3>Presencia</h3><div class="valor" id="presencia_2">--</div></div>
+    </div>
+  </div>
+
+  <script>
+    const LIMITE_SIN_DATOS_SEG = 60;
+    const estado = document.getElementById("estado");
+    const fuente = new EventSource("/api/stream/");
+    let ultimaLectura = null;
+    let conectado = true;
+
+    function tiempoTranscurrido(seg) {
+      if (seg < 60) return "hace " + seg + " s";
+      if (seg < 3600) return "hace " + Math.floor(seg / 60) + " min";
+      return "hace " + Math.floor(seg / 3600) + " h " + Math.floor((seg % 3600) / 60) + " min";
+    }
+
+    function actualizarEstado() {
+      if (!conectado) {
+        estado.textContent = "Conexión perdida, reintentando...";
+        estado.classList.add("sin-datos");
+        return;
+      }
+      if (ultimaLectura === null) return;
+      const seg = Math.max(0, Math.round((Date.now() - ultimaLectura.getTime()) / 1000));
+      const fecha = ultimaLectura.toLocaleString("es-MX", {
+        day: "numeric", month: "short",
+        hour: "2-digit", minute: "2-digit", second: "2-digit",
+        hour12: false
+      });
+      estado.textContent = "Última lectura: " + fecha + " (" + tiempoTranscurrido(seg) + ")";
+      estado.classList.toggle("sin-datos", seg > LIMITE_SIN_DATOS_SEG);
+    }
+
+    fuente.onmessage = (evento) => {
+      const d = JSON.parse(evento.data);
+      conectado = true;
+
+      for (const n of [1, 2]) {
+        document.getElementById("temp_" + n).textContent = d["temp_" + n] + " °C";
+        document.getElementById("hum_" + n).textContent = d["hum_" + n] + " %";
+        document.getElementById("presencia_" + n).textContent = d["presencia_" + n] ? "Hay alguien" : "Nadie";
+        document.getElementById("tarjeta-presencia_" + n).className =
+          "tarjeta" + (d["presencia_" + n] ? " alerta" : "");
+      }
+
+      ultimaLectura = new Date(d.recibido_en);
+      actualizarEstado();
+    };
+
+    fuente.onerror = () => {
+      conectado = false;
+      actualizarEstado();
+    };
+
+    setInterval(actualizarEstado, 1000);
+  </script>
+</body>
+</html>
