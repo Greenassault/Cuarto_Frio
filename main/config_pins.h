@@ -1,5 +1,5 @@
-#ifndef CONFIG_PINES_H
-#define CONFIG_PINES_H
+#ifndef CONFIG_PINS_H
+#define CONFIG_PINS_H
 
 #include "driver/gpio.h"
 
@@ -32,7 +32,7 @@
 #define PIN_TEMP_6          GPIO_NUM_13
 
 // --- Indicador de estado en placa ---
-// GPIO38 controla el LED RGB en la revisión v1.1 (usar GPIO48 si es v1.0)
-#define PIN_LED_SISTEMA     GPIO_NUM_21 
+// GPIO48 controla el LED RGB integrado en la placa v1.3
+#define PIN_LED_SISTEMA     GPIO_NUM_48
 
-#endif // CONFIG_PINES_H
+#endif // CONFIG_PINS_H
