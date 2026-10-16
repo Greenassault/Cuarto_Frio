@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ botones.base_datos }} - Cuarto frío</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 24px;
+      font-family: system-ui, sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+    }
+    header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+    h1 { margin: 0 0 4px; }
+    .subtitulo { color: #94a3b8; }
+    .enlace {
+      color: #e2e8f0; background: #1e293b; padding: 10px 16px;
+      border-radius: 8px; text-decoration: none; white-space: nowrap;
+    }
+    .enlace:hover { background: #334155; }
+    .bloque { background: #1e293b; border-radius: 12px; padding: 20px; margin-top: 16px; }
+    .controles { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+    .controles label { display: flex; flex-direction: column; font-size: 0.85rem; color: #94a3b8; gap: 4px; }
+    button, input {
+      font: inherit; color: #e2e8f0; background: #0f172a;
+      border: 1px solid #334155; border-radius: 8px; padding: 8px 12px;
+    }
+    button { cursor: pointer; }
+    button:hover, .boton:hover { background: #334155; }
+    .boton {
+      font: inherit; color: #e2e8f0; background: #0f172a;
+      border: 1px solid #334155; border-radius: 8px; padding: 8px 12px;
+      text-decoration: none;
+    }
+    .principal { background: #2563eb; border-color: #2563eb; }
+    .principal:hover { background: #1d4ed8; }
+    #mensaje { margin-top: 12px; color: #fca5a5; }
+    .scroll { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+    th, td { padding: 8px 10px; text-align: right; border-bottom: 1px solid #334155; white-space: nowrap; }
+    th:first-child, td:first-child { text-align: left; }
+    th { color: #94a3b8; font-weight: 600; background: #1e293b; }
+    th.seccion { text-align: center; color: #cbd5e1; border-bottom: 1px solid #334155; }
+    th.separador, td.separador { border-left: 1px solid #334155; }
+    .vacio { color: #94a3b8; }
+    .paginas { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 16px; }
+    .paginas .inactivo { opacity: 0.4; pointer-events: none; }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>{{ botones.base_datos }}</h1>
+      <div class="subtitulo">Lecturas guardadas, de la más reciente a la más antigua. Solo se pueden ver y descargar.</div>
+    </div>
+    <a class="enlace" href="/">Volver al panel</a>
+  </header>
+
+  <div class="bloque">
+    <form method="get" action="/datos/" id="filtro" class="controles" data-desde="{{ desde }}" data-hasta="{{ hasta }}">
+      <label>Desde <input type="datetime-local" id="desde"></label>
+      <label>Hasta <input type="datetime-local" id="hasta"></label>
+      <input type="hidden" name="desde" id="desde-iso">
+      <input type="hidden" name="hasta" id="hasta-iso">
+      <button type="submit" class="principal">Mostrar este rango</button>
+      <a class="boton" href="/datos/">Mostrar todo</a>
+      <a class="boton" id="csv" href="/datos/csv/">Descargar CSV</a>
+    </form>
+    {% if error %}<div id="mensaje">{{ error }}</div>{% endif %}
+    <div class="subtitulo" style="margin-top:12px">
+      Sin fechas se muestran y descargan todas las lecturas. El CSV usa el mismo rango que ves en la tabla.
+    </div>
+  </div>
+
+  <div class="bloque">
+    {% if pagina.object_list %}
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr>
+            <th rowspan="2">Fecha y hora</th>
+            <th class="seccion separador" colspan="3">{{ nombres.1 }}</th>
+            <th class="seccion separador" colspan="3">{{ nombres.2 }}</th>
+          </tr>
+          <tr>
+            <th class="separador">Temperatura (°C)</th><th>Humedad (%)</th><th>Presencia</th>
+            <th class="separador">Temperatura (°C)</th><th>Humedad (%)</th><th>Presencia</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for l in pagina %}
+          <tr>
+            <td><time class="fecha" datetime="{{ l.recibido_en|date:'c' }}">{{ l.recibido_en|date:'Y-m-d H:i:s' }} UTC</time></td>
+            <td class="separador">{{ l.temp_1|floatformat:1 }}</td><td>{{ l.hum_1|floatformat:1 }}</td><td>{{ l.presencia_1|yesno:"Sí,No" }}</td>
+            <td class="separador">{{ l.temp_2|floatformat:1 }}</td><td>{{ l.hum_2|floatformat:1 }}</td><td>{{ l.presencia_2|yesno:"Sí,No" }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="paginas">
+      <div class="subtitulo">
+        Página {{ pagina.number }} de {{ pagina.paginator.num_pages }}
+        · {{ pagina.paginator.count }} lecturas en total
+      </div>
+      <div>
+        {% if pagina.has_previous %}
+        <a class="boton" href="?{% if filtro %}{{ filtro }}&{% endif %}pagina={{ pagina.previous_page_number }}">Más recientes</a>
+        {% else %}
+        <span class="boton inactivo">Más recientes</span>
+        {% endif %}
+        {% if pagina.has_next %}
+        <a class="boton" href="?{% if filtro %}{{ filtro }}&{% endif %}pagina={{ pagina.next_page_number }}">Más antiguas</a>
+        {% else %}
+        <span class="boton inactivo">Más antiguas</span>
+        {% endif %}
+      </div>
+    </div>
+    {% else %}
+    <div class="vacio">No hay lecturas guardadas en este rango.</div>
+    {% endif %}
+  </div>
+
+  <script>
+    const formulario = document.getElementById("filtro");
+    const entradaDesde = document.getElementById("desde");
+    const entradaHasta = document.getElementById("hasta");
+
+    function aInput(d) {
+      const p = (n) => String(n).padStart(2, "0");
+      return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) +
+        "T" + p(d.getHours()) + ":" + p(d.getMinutes());
+    }
+
+    function fmt(iso) {
+      return new Date(iso).toLocaleString("es-MX", {
+        day: "numeric", month: "short", year: "numeric",
+        hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false
+      });
+    }
+
+    // Las horas se muestran en la hora de este equipo, igual que en el resto del HMI
+    document.querySelectorAll("time.fecha").forEach((t) => {
+      t.textContent = fmt(t.getAttribute("datetime"));
+    });
+
+    // Se vuelven a poner en los campos las fechas del filtro que ya está aplicado
+    const desdeAplicado = formulario.dataset.desde;
+    const hastaAplicado = formulario.dataset.hasta;
+    if (desdeAplicado && !isNaN(new Date(desdeAplicado))) entradaDesde.value = aInput(new Date(desdeAplicado));
+    if (hastaAplicado && !isNaN(new Date(hastaAplicado))) entradaHasta.value = aInput(new Date(hastaAplicado));
+
+    // Al mostrar el rango se mandan las fechas en formato universal (UTC)
+    formulario.addEventListener("submit", () => {
+      document.getElementById("desde-iso").value = entradaDesde.value ? new Date(entradaDesde.value).toISOString() : "";
+      document.getElementById("hasta-iso").value = entradaHasta.value ? new Date(entradaHasta.value).toISOString() : "";
+    });
+
+    // El CSV usa el rango aplicado y la hora de este equipo
+    const params = new URLSearchParams();
+    if (desdeAplicado) params.set("desde", desdeAplicado);
+    if (hastaAplicado) params.set("hasta", hastaAplicado);
+    params.set("tz", new Date().getTimezoneOffset());
+    document.getElementById("csv").href = "/datos/csv/?" + params.toString();
+  </script>
+</body>
+</html>

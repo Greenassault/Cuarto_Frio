@@ -1,0 +1,23 @@
+<style>
+  .opciones { display: flex; flex-wrap: wrap; gap: 12px 24px; }
+  .opcion { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .etiqueta { color: #94a3b8; font-size: 0.9rem; }
+</style>
+<div class="opciones">
+  <div class="opcion">
+    <span class="etiqueta">Qué ver:</span>
+    <div class="grupo" id="variables">
+      <button data-var="temp" class="activo" aria-pressed="true">Temperatura</button>
+      <button data-var="hum" aria-pressed="false">Humedad</button>
+    </div>
+  </div>
+  <div class="opcion">
+    <span class="etiqueta">Sección:</span>
+    <div class="grupo" id="secciones-botones">
+      <button data-seccion="0" class="activo" aria-pressed="true">Ambas secciones</button>
+      {% for numero, seccion in secciones.items %}
+      <button data-seccion="{{ numero }}" aria-pressed="false">{{ seccion }}</button>
+      {% endfor %}
+    </div>
+  </div>
+</div>

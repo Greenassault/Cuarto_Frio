@@ -1,10 +1,11 @@
-<!DOCTYPE html>
+{% load static %}<!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Historial - Cuarto frío</title>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <title>{{ botones.estadisticas }} - Cuarto frío</title>
+  <script src="{% static 'sensores/chart.umd.min.js' %}"></script>
+  <script src="{% static 'sensores/grafica_comun.js' %}"></script>
   <style>
     * { box-sizing: border-box; }
     body {
@@ -42,7 +43,8 @@
     .grafica { position: relative; height: 420px; }
     .encabezado-grafica { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
     .encabezado-grafica h2 { margin: 0; }
-    .leyenda-hueco { color: #fca5a5; font-size: 0.85rem; margin-top: 8px; }
+    .leyenda-interrupcion { color: #fca5a5; font-size: 0.85rem; margin-top: 8px; }
+    .nota-grafica { color: #94a3b8; font-size: 0.85rem; margin-top: 8px; }
     table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
     th, td { padding: 8px 10px; text-align: right; border-bottom: 1px solid #334155; }
     th:first-child, td:first-child { text-align: left; }
@@ -53,7 +55,7 @@
 </head>
 <body>
   <header>
-    <h1>Historial</h1>
+    <h1>{{ botones.estadisticas }}</h1>
     <a class="enlace" href="/">Volver al panel</a>
   </header>
 
@@ -68,7 +70,7 @@
       <label>Desde <input type="datetime-local" id="desde"></label>
       <label>Hasta <input type="datetime-local" id="hasta"></label>
       <button id="consultar">Consultar rango</button>
-      <label>Hueco si no hay datos por más de
+      <label>Es interrupción si no hay datos por más de
         <select id="umbral">
           <option value="60">1 minuto</option>
           <option value="300" selected>5 minutos</option>
@@ -85,18 +87,16 @@
   <div class="bloque">
     <div class="encabezado-grafica">
       <h2>Gráfica</h2>
-      <div class="grupo" id="variables">
-        <button data-var="temp" class="activo">Temperatura</button>
-        <button data-var="hum">Humedad</button>
-      </div>
+      {% include "sensores/_botones_grafica.html" %}
     </div>
     <div class="grafica"><canvas id="grafica"></canvas></div>
-    <div class="leyenda-hueco">Las franjas rojas son huecos: periodos sin datos, posible apagón o desconexión.</div>
+    <div class="nota-grafica" id="nota-promedio"></div>
+    <div class="leyenda-interrupcion">Las franjas rojas son interrupciones de datos: periodos sin lecturas, posible apagón o desconexión.</div>
   </div>
 
   <div class="bloque">
-    <h2>Huecos detectados</h2>
-    <div id="huecos"></div>
+    <h2>Interrupciones de datos detectadas</h2>
+    <div id="interrupciones"></div>
   </div>
 
   <div class="bloque">
@@ -104,14 +104,13 @@
     <div class="scroll"><div id="tabla"></div></div>
   </div>
 
+  {{ nombres|json_script:"nombres" }}
   <script>
+    const NOMBRES = JSON.parse(document.getElementById("nombres").textContent);
     let datos = null;
     let presetHoras = 24;
     let variable = "temp";
-    let grafica = null;
-
-    const COLOR_1 = "#38bdf8";
-    const COLOR_2 = "#fbbf24";
+    let seccion = 0;                     // 0 = ambas secciones
 
     function fmt(iso) {
       return new Date(iso).toLocaleString("es-MX", {
@@ -172,50 +171,33 @@
     function pintar() {
       pintarResumen();
       pintarGrafica();
-      pintarHuecos();
+      pintarInterrupciones();
       pintarTabla();
     }
 
     function pintarResumen() {
       const r = datos.resumen;
-      const mayor = datos.huecos.reduce((m, h) => Math.max(m, h.segundos), 0);
-      const reducido = datos.paso > 1 ? "Gráfica con 1 de cada " + datos.paso + " lecturas" : "Todas las lecturas en la gráfica";
+      const mayor = datos.interrupciones.reduce((m, h) => Math.max(m, h.segundos), 0);
+      const reducido = "Gráfica: un punto por cada " + GraficaComun.textoIntervalo(datos.intervalo);
       document.getElementById("resumen").innerHTML =
         '<div class="dato"><h3>Lecturas en el rango</h3><div class="grande">' + datos.total +
         '</div><div class="chico">' + reducido + '</div></div>' +
-        '<div class="dato"><h3>Huecos</h3><div class="grande">' + datos.huecos.length +
-        '</div><div class="chico">' + (mayor ? "El mayor: " + duracion(mayor) : "Sin pausas largas") + '</div></div>' +
-        '<div class="dato"><h3>Cuarto frío 1 (°C)</h3><div class="grande">' + num(r.temp_1_prom) +
+        '<div class="dato"><h3>Interrupciones de datos</h3><div class="grande">' + datos.interrupciones.length +
+        '</div><div class="chico">' + (mayor ? "El mayor: " + duracion(mayor) : "Sin interrupciones largas") + '</div></div>' +
+        '<div class="dato"><h3>' + NOMBRES[1] + ' (°C)</h3><div class="grande">' + num(r.temp_1_prom) +
         ' prom.</div><div class="chico">mín ' + num(r.temp_1_min) + ' · máx ' + num(r.temp_1_max) + '</div></div>' +
-        '<div class="dato"><h3>Cuarto frío 2 (°C)</h3><div class="grande">' + num(r.temp_2_prom) +
+        '<div class="dato"><h3>' + NOMBRES[2] + ' (°C)</h3><div class="grande">' + num(r.temp_2_prom) +
         ' prom.</div><div class="chico">mín ' + num(r.temp_2_min) + ' · máx ' + num(r.temp_2_max) + '</div></div>';
     }
 
-    // indice dentro de cada punto: [fecha, temp_1, hum_1, temp_2, hum_2]
-    function serie(indice) {
-      const inicios = datos.huecos.map((h) => new Date(h.desde).getTime());
-      const pts = [];
-      let previo = null;
-      for (const p of datos.puntos) {
-        const x = new Date(p[0]).getTime();
-        // Si entre dos puntos empieza un hueco, se corta la línea
-        if (previo !== null && inicios.some((h) => h >= previo && h < x)) {
-          pts.push({ x: (previo + x) / 2, y: null });
-        }
-        pts.push({ x: x, y: p[indice] });
-        previo = x;
-      }
-      return pts;
-    }
-
-    const sombreaHuecos = {
-      id: "sombreaHuecos",
+    const sombreaInterrupciones = {
+      id: "sombreaInterrupciones",
       beforeDatasetsDraw(chart) {
         if (!datos) return;
         const { ctx, chartArea, scales } = chart;
         ctx.save();
         ctx.fillStyle = "rgba(239, 68, 68, 0.28)";
-        for (const h of datos.huecos) {
+        for (const h of datos.interrupciones) {
           let x1 = scales.x.getPixelForValue(new Date(h.desde).getTime());
           let x2 = scales.x.getPixelForValue(new Date(h.hasta).getTime());
           x1 = Math.max(x1, chartArea.left);
@@ -228,68 +210,42 @@
       }
     };
 
-    function pintarGrafica() {
-      const esTemp = variable === "temp";
-      const unidad = esTemp ? "°C" : "%";
-      const i1 = esTemp ? 1 : 2;
-      const i2 = esTemp ? 3 : 4;
+    // El dibujo (promedios, eje, huecos, botones) es el mismo que en la página "Gráfica"
+    const grafica = GraficaComun.crear(document.getElementById("grafica"), {
+      formatoEjeX: (v) => new Date(v).toLocaleString("es-MX", {
+        day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false
+      }),
+      tituloTooltip: (x) => fmt(x) + " (promedio de " + GraficaComun.textoIntervalo(datos.intervalo) + ")",
+      unidad: () => (variable === "temp" ? "°C" : "%"),
+      plugins: [sombreaInterrupciones]
+    });
 
-      if (grafica) grafica.destroy();
-      grafica = new Chart(document.getElementById("grafica"), {
-        type: "line",
-        data: {
-          datasets: [
-            { label: "Cuarto frío 1", data: serie(i1), borderColor: COLOR_1, borderWidth: 2, pointRadius: 0, tension: 0.2, spanGaps: false },
-            { label: "Cuarto frío 2", data: serie(i2), borderColor: COLOR_2, borderWidth: 2, pointRadius: 0, tension: 0.2, spanGaps: false }
-          ]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          animation: false,
-          interaction: { mode: "nearest", axis: "x", intersect: false },
-          scales: {
-            x: {
-              type: "linear",
-              min: new Date(datos.desde).getTime(),
-              max: new Date(datos.hasta).getTime(),
-              ticks: {
-                color: "#94a3b8",
-                maxTicksLimit: 8,
-                callback: (v) => new Date(v).toLocaleString("es-MX", {
-                  day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false
-                })
-              },
-              grid: { color: "#334155" }
-            },
-            y: {
-              title: { display: true, text: unidad, color: "#94a3b8" },
-              ticks: { color: "#94a3b8" },
-              grid: { color: "#334155" }
-            }
-          },
-          plugins: {
-            legend: { labels: { color: "#e2e8f0" } },
-            tooltip: {
-              callbacks: {
-                title: (items) => fmt(items[0].parsed.x),
-                label: (item) => item.dataset.label + ": " + item.parsed.y + " " + unidad
-              }
-            }
-          }
-        },
-        plugins: [sombreaHuecos]
+    function pintarGrafica() {
+      // Las interrupciones vienen de las lecturas originales. Se corta la línea cuando
+      // una interrupción termina después del inicio del siguiente punto.
+      const huecos = datos.interrupciones.map((h) => [Date.parse(h.desde), Date.parse(h.hasta)]);
+      GraficaComun.dibujar(grafica, {
+        nombres: NOMBRES,
+        seccion: seccion,
+        variable: variable,
+        puntos: GraficaComun.puntosDeServidor(datos.puntos),
+        hayCorte: (previo, x) => huecos.some(([desde, hasta]) => desde < x && hasta >= x),
+        xMin: Date.parse(datos.desde),
+        xMax: Date.parse(datos.hasta)
       });
+      document.getElementById("nota-promedio").textContent =
+        "Cada punto de la gráfica es el promedio de " + GraficaComun.textoIntervalo(datos.intervalo) +
+        ". Las tarjetas, las interrupciones y la tabla usan las lecturas originales.";
     }
 
-    function pintarHuecos() {
-      const cont = document.getElementById("huecos");
-      if (datos.huecos.length === 0) {
-        cont.innerHTML = '<div class="vacio">Sin huecos: no hubo pausas mayores al umbral elegido.</div>';
+    function pintarInterrupciones() {
+      const cont = document.getElementById("interrupciones");
+      if (datos.interrupciones.length === 0) {
+        cont.innerHTML = '<div class="vacio">Sin interrupciones: no hubo pausas mayores al tiempo elegido.</div>';
         return;
       }
       let filas = "";
-      for (const h of datos.huecos) {
+      for (const h of datos.interrupciones) {
         filas += "<tr><td>" + fmt(h.desde) + "</td><td>" + fmt(h.hasta) +
           "</td><td>" + duracion(h.segundos) + "</td></tr>";
       }
@@ -314,8 +270,8 @@
           "<td>" + l.temp_2.toFixed(1) + "</td><td>" + l.hum_2.toFixed(1) + "</td><td>" + si(l.presencia_2) + "</td></tr>";
       }
       cont.innerHTML = "<table><thead><tr><th>Hora</th>" +
-        "<th>Temp. 1 (°C)</th><th>Hum. 1 (%)</th><th>Presencia 1</th>" +
-        "<th>Temp. 2 (°C)</th><th>Hum. 2 (%)</th><th>Presencia 2</th></tr></thead><tbody>" +
+        "<th>Temp. " + NOMBRES[1] + " (°C)</th><th>Hum. " + NOMBRES[1] + " (%)</th><th>Presencia " + NOMBRES[1] + "</th>" +
+        "<th>Temp. " + NOMBRES[2] + " (°C)</th><th>Hum. " + NOMBRES[2] + " (%)</th><th>Presencia " + NOMBRES[2] + "</th></tr></thead><tbody>" +
         filas + "</tbody></table>";
     }
 
@@ -341,15 +297,10 @@
       consultar(new Date(d), new Date(h));
     });
 
-    // Cambiar entre temperatura y humedad
-    document.querySelectorAll("#variables button").forEach((b) => {
-      b.addEventListener("click", () => {
-        document.querySelectorAll("#variables button").forEach((x) => x.classList.remove("activo"));
-        b.classList.add("activo");
-        variable = b.dataset.var;
-        if (datos) pintarGrafica();
-      });
-    });
+    // Botones de la gráfica: temperatura / humedad y qué sección ver (se combinan)
+    const redibujar = () => { if (datos) pintarGrafica(); };
+    GraficaComun.conectarBotones("#variables", (b) => { variable = b.dataset.var; }, redibujar);
+    GraficaComun.conectarBotones("#secciones-botones", (b) => { seccion = Number(b.dataset.seccion); }, redibujar);
 
     // Cambiar el umbral vuelve a consultar el mismo rango
     document.getElementById("umbral").addEventListener("change", () => {
