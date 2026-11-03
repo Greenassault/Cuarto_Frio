@@ -34,5 +34,6 @@
     "--compile-commands-dir=c:\\Users\\green\\Documents\\Microcontroller\\Cuarto_Frio\\Cuarto_Frio\\build"
   ],
   "idf.flashType": "UART",
-  "idf.port": "COM6"
+  "idf.port": "COM7",
+  "idf.monitorPort": "COM8"
 }
