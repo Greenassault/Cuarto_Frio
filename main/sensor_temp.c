@@ -7,7 +7,7 @@
 
 static const char *TAG = "MODULO_TEMP";
 static const uart_port_t UART_RS485 = UART_NUM_1;
-static const uint8_t DIRECCIONES_TEMP[NUM_SENSORES_TEMP] = {1};
+static const uint8_t DIRECCIONES_TEMP[NUM_SENSORES_TEMP] = {1, 2};
 static const int TIEMPO_ESPERA_MS = 300;
 static bool uart_inicializada;
 

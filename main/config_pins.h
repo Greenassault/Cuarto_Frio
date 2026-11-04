@@ -4,7 +4,7 @@
 #include "driver/gpio.h"
 
 // --- Cantidad de sensores en el sistema ---
-#define NUM_SENSORES_TEMP   1
+#define NUM_SENSORES_TEMP   2
 #define NUM_RADARES         2
 
 // --- Bus RS485 para sensores XY-MD03 ---
