@@ -34,6 +34,7 @@
       white-space: nowrap;
     }
     .enlace:hover { background: #334155; }
+    .enlaces { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
     .cuarto {
       flex: 1;
       display: flex;
@@ -74,11 +75,15 @@
       <h1>Cuarto frío</h1>
       <div id="estado">Conectando...</div>
     </div>
-    <a class="enlace" href="/historial/">Ver historial</a>
+    <div class="enlaces">
+      <a class="enlace" href="/grafica/">Gráfica de temperatura y humedad</a>
+      <a class="enlace" href="/datos/">{{ botones.base_datos }}</a>
+      <a class="enlace" href="/historial/">{{ botones.estadisticas }}</a>
+    </div>
   </header>
 
   <div class="cuarto">
-    <h2 class="seccion">Cuarto frío 1</h2>
+    <h2 class="seccion">{{ nombres.1 }}</h2>
     <div class="tarjetas">
       <div class="tarjeta"><h3>Temperatura</h3><div class="valor" id="temp_1">--</div></div>
       <div class="tarjeta"><h3>Humedad</h3><div class="valor" id="hum_1">--</div></div>
@@ -87,7 +92,7 @@
   </div>
 
   <div class="cuarto">
-    <h2 class="seccion">Cuarto frío 2</h2>
+    <h2 class="seccion">{{ nombres.2 }}</h2>
     <div class="tarjetas">
       <div class="tarjeta"><h3>Temperatura</h3><div class="valor" id="temp_2">--</div></div>
       <div class="tarjeta"><h3>Humedad</h3><div class="valor" id="hum_2">--</div></div>

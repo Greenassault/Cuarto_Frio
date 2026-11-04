@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include "Built_LED.h"
 #include "sensor_temp.h"
+#include "mqtt_publisher.h"
 #include "esp_err.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -55,6 +56,7 @@ void app_main(void)
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
 #else
+    mqtt_publisher_init();
     while (1) {
         printf("----------------------------\n");
         datos_temperatura_t datos_temp;
@@ -77,6 +79,7 @@ void app_main(void)
                     printf("Sensor %u: no responde\n", sensor->direccion);
                 }
             }
+            mqtt_publisher_enviar(&datos_temp);
             if (led_disponible) {
                 if (sensores_disponibles == NUM_SENSORES_TEMP) {
                     Built_LED_set_color(0, 50, 0);

@@ -1,0 +1,7 @@
+menu "Configuracion MQTT"
+    config BROKER_URL
+        string "Broker URL"
+        default "mqtt://192.168.0.80"
+        help
+            URL del broker MQTT (la laptop con Mosquitto)
+endmenu
