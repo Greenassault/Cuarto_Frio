@@ -36,6 +36,8 @@ class Command(BaseCommand):
                 hum_2=datos["hum_2"],
                 presencia_1=datos["presencia_1"],
                 presencia_2=datos["presencia_2"],
+                ok_1=datos.get("ok_1", True),
+                ok_2=datos.get("ok_2", True),
             )
             self.stdout.write(f"Guardado: {datos}")
         except (json.JSONDecodeError, KeyError, ValueError) as error:

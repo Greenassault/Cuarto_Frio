@@ -58,15 +58,28 @@ esp_err_t mqtt_publisher_init(void)
     return esp_mqtt_client_start(client);
 }
 
-static void valores_sensor(const datos_temperatura_t *d, int i, float *temp, float *hum)
+static void valores_sensor(const datos_temperatura_t *d, int i, float *temp, float *hum, bool *ok)
 {
-    if (i < NUM_SENSORES_TEMP && d->sensores[i].disponible) {
-        *temp = d->sensores[i].grados_c;
-        *hum = d->sensores[i].humedad;
-    } else {
-        *temp = 0.0f;
-        *hum = 0.0f;
+    *temp = 0.0f;
+    *hum = 0.0f;
+    *ok = false;
+
+    if (i >= NUM_SENSORES_TEMP || !d->sensores[i].disponible) {
+        return;
     }
+
+    float t = d->sensores[i].grados_c;
+    float h = d->sensores[i].humedad;
+
+    // El XY-MD03 mide de -40 a 80 °C y de 0 a 100 %. Fuera de ese rango
+    // (por ejemplo -3276.8, que es su código de error) se considera falla.
+    if (t < -40.0f || t > 80.0f || h < 0.0f || h > 100.0f) {
+        return;
+    }
+
+    *temp = t;
+    *hum = h;
+    *ok = true;
 }
 
 void mqtt_publisher_enviar(const datos_temperatura_t *datos)
@@ -76,16 +89,19 @@ void mqtt_publisher_enviar(const datos_temperatura_t *datos)
     }
 
     float t1, h1, t2, h2;
-    valores_sensor(datos, 0, &t1, &h1);
-    valores_sensor(datos, 1, &t2, &h2);
+    bool ok1, ok2;
+    valores_sensor(datos, 0, &t1, &h1, &ok1);
+    valores_sensor(datos, 1, &t2, &h2, &ok2);
 
-    char msg[256];
+    char msg[320];
     snprintf(msg, sizeof(msg),
              "{\"sensor_id\": \"%s\", "
              "\"temp_1\": %.1f, \"hum_1\": %.1f, "
              "\"temp_2\": %.1f, \"hum_2\": %.1f, "
-             "\"presencia_1\": false, \"presencia_2\": false}",
-             SENSOR_ID, t1, h1, t2, h2);
+             "\"presencia_1\": false, \"presencia_2\": false, "
+             "\"ok_1\": %s, \"ok_2\": %s}",
+             SENSOR_ID, t1, h1, t2, h2,
+             ok1 ? "true" : "false", ok2 ? "true" : "false");
 
     esp_mqtt_client_publish(client, MQTT_TOPIC, msg, 0, 0, 0);
     ESP_LOGI(TAG, "Publicado: %s", msg);

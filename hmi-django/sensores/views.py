@@ -48,6 +48,8 @@ def lectura_a_dict(lectura):
         "hum_2": lectura.hum_2,
         "presencia_1": lectura.presencia_1,
         "presencia_2": lectura.presencia_2,
+        "ok_1": lectura.ok_1,
+        "ok_2": lectura.ok_2,
         "recibido_en": lectura.recibido_en.isoformat(),
     }
 
