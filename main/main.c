@@ -83,7 +83,7 @@ void app_main(void)
                 } else if (sensores_disponibles == 0) {
                     Built_LED_set_color(50, 0, 0);
                 } else {
-                    Built_LED_set_color(50, 30, 0);
+                    Built_LED_set_color(50, 50, 0);
                 }
             }
         }
