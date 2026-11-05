@@ -1,0 +1,240 @@
+{% load static %}<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gráfica - Cuarto frío</title>
+  <script src="{% static 'sensores/chart.umd.min.js' %}"></script>
+  <script src="{% static 'sensores/grafica_comun.js' %}"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 24px;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      font-family: system-ui, sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+    }
+    h1 { margin: 0 0 4px; }
+    #estado { color: #94a3b8; }
+    #estado.sin-datos { color: #fca5a5; font-weight: 600; }
+    .enlace {
+      color: #e2e8f0;
+      background: #1e293b;
+      padding: 10px 16px;
+      border-radius: 8px;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+    .enlace:hover { background: #334155; }
+    .bloque {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      background: #1e293b;
+      border-radius: 12px;
+      padding: 20px;
+      margin-top: 16px;
+    }
+    .encabezado-grafica {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    h2 { margin: 0; font-size: 1.4rem; color: #cbd5e1; }
+    .grupo { display: flex; gap: 8px; flex-wrap: wrap; }
+    .grupo button {
+      font: inherit; color: #e2e8f0; background: #0f172a;
+      border: 1px solid #334155; border-radius: 8px; padding: 8px 12px;
+      cursor: pointer;
+    }
+    .grupo button:hover { background: #334155; }
+    .grupo button.activo { background: #2563eb; border-color: #2563eb; }
+    .grafica { position: relative; flex: 1; min-height: 400px; }
+    #grafica-aviso { color: #fca5a5; font-size: 0.9rem; margin-top: 8px; }
+    #grafica-aviso:empty { display: none; }
+    #grafica-nota { color: #94a3b8; font-size: 0.85rem; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Gráfica de temperatura y humedad</h1>
+      <div id="estado">Conectando...</div>
+    </div>
+    <a class="enlace" href="/">Volver al panel</a>
+  </header>
+
+  <div class="bloque">
+    <div class="encabezado-grafica">
+      <h2 id="grafica-titulo">Temperatura en la última hora</h2>
+      {% include "sensores/_botones_grafica.html" %}
+    </div>
+    <div class="grafica"><canvas id="grafica"></canvas></div>
+    <div id="grafica-aviso"></div>
+    <div id="grafica-nota"></div>
+  </div>
+
+  {{ nombres|json_script:"nombres" }}
+  <script>
+    const NOMBRES = JSON.parse(document.getElementById("nombres").textContent);
+    const LIMITE_SIN_DATOS_SEG = 60;
+    const MINUTO_MS = 60 * 1000;
+    const VENTANA_MS = 60 * MINUTO_MS;   // la gráfica muestra la última hora
+    const HUECO_MS = 3 * MINUTO_MS;      // si entre dos puntos pasan 3 min o más, la línea se corta
+    const estado = document.getElementById("estado");
+    const aviso = document.getElementById("grafica-aviso");
+    const fuente = new EventSource("/api/stream/");
+    let ultimaLectura = null;
+    let conectado = true;
+    let huboError = false;
+    let variable = "temp";
+    let seccion = 0;                     // 0 = ambas secciones
+
+    // Un registro por intervalo: {x, n, s}. n = lecturas del intervalo; s = suma de
+    // [temp_1, hum_1, temp_2, hum_2]. El punto que se dibuja es s / n.
+    let intervalo = MINUTO_MS;           // el servidor lo confirma al cargar
+    let grupos = new Map();
+    let ultimoX = null;                  // hora de la última lectura ya sumada
+    let pendientes = [];                 // lecturas en vivo que llegaron antes de cargar la hora
+    let cargado = false;
+
+    function tiempoTranscurrido(seg) {
+      if (seg < 60) return "hace " + seg + " s";
+      if (seg < 3600) return "hace " + Math.floor(seg / 60) + " min";
+      return "hace " + Math.floor(seg / 3600) + " h " + Math.floor((seg % 3600) / 60) + " min";
+    }
+
+    function actualizarEstado() {
+      if (!conectado) {
+        estado.textContent = "Conexión perdida, reintentando...";
+        estado.classList.add("sin-datos");
+        return;
+      }
+      if (ultimaLectura === null) return;
+      const seg = Math.max(0, Math.round((Date.now() - ultimaLectura.getTime()) / 1000));
+      const fecha = ultimaLectura.toLocaleString("es-MX", {
+        day: "numeric", month: "short",
+        hour: "2-digit", minute: "2-digit", second: "2-digit",
+        hour12: false
+      });
+      estado.textContent = "Última lectura: " + fecha + " (" + tiempoTranscurrido(seg) + ")";
+      estado.classList.toggle("sin-datos", seg > LIMITE_SIN_DATOS_SEG);
+    }
+
+    // ---- Lecturas en vivo sumadas al intervalo que les toca ----
+    function aplicarLectura(d) {
+      const x = Date.parse(d.recibido_en);
+      if (ultimoX !== null && x <= ultimoX) return;   // esta lectura ya estaba contada
+      const inicio = Math.floor(x / intervalo) * intervalo;
+      let g = grupos.get(inicio);
+      if (!g) {
+        g = { x: inicio, n: 0, s: [0, 0, 0, 0] };
+        grupos.set(inicio, g);
+      }
+      g.n += 1;
+      [d.temp_1, d.hum_1, d.temp_2, d.hum_2].forEach((v, i) => { g.s[i] += v; });
+      ultimoX = x;
+      for (const k of grupos.keys()) {
+        if (k < ultimoX - VENTANA_MS) grupos.delete(k);
+      }
+    }
+
+    // ---- Gráfica (el dibujo es el mismo que en "Ver estadísticas") ----
+    const grafica = GraficaComun.crear(document.getElementById("grafica"), {
+      formatoEjeX: (v) => new Date(v).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit", hour12: false }),
+      tituloTooltip: (x) => new Date(x).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit", hour12: false }) +
+        " (promedio de " + GraficaComun.textoIntervalo(intervalo / 1000) + ")",
+      unidad: () => (variable === "temp" ? "°C" : "%")
+    });
+
+    function pintarGrafica() {
+      GraficaComun.dibujar(grafica, {
+        nombres: NOMBRES,
+        seccion: seccion,
+        variable: variable,
+        puntos: [...grupos.values()].sort((a, b) => a.x - b.x),
+        hayCorte: (previo, x) => x - previo >= HUECO_MS,
+        xMin: ultimoX === null ? undefined : ultimoX - VENTANA_MS,
+        xMax: ultimoX === null ? undefined : ultimoX
+      });
+      document.getElementById("grafica-titulo").textContent =
+        (variable === "temp" ? "Temperatura" : "Humedad") + " en la última hora";
+      document.getElementById("grafica-nota").textContent =
+        "Cada punto es el promedio de " + GraficaComun.textoIntervalo(intervalo / 1000) +
+        ". Si la línea se corta, en ese momento no llegaron datos.";
+    }
+
+    // Al abrir la página (y al reconectar) el servidor entrega la última hora ya promediada
+    async function cargarUltimaHora() {
+      cargado = false;
+      pendientes = [];
+      grupos = new Map();
+      ultimoX = null;
+      aviso.textContent = "";
+      try {
+        const resp = await fetch("/api/grafica/");
+        if (!resp.ok) throw new Error();
+        const datos = await resp.json();
+        intervalo = datos.intervalo * 1000;
+        for (const p of GraficaComun.puntosDeServidor(datos.puntos)) grupos.set(p.x, p);
+        if (datos.ultima) ultimoX = Date.parse(datos.ultima);
+      } catch (e) {
+        aviso.textContent = "No se pudo cargar la última hora. La gráfica se llenará con los datos nuevos.";
+      }
+      // Lecturas en vivo que llegaron mientras tanto; las que ya venían en el historial se ignoran
+      cargado = true;
+      pendientes.forEach(aplicarLectura);
+      pendientes = [];
+      pintarGrafica();
+    }
+
+    GraficaComun.conectarBotones("#variables", (b) => { variable = b.dataset.var; }, pintarGrafica);
+    GraficaComun.conectarBotones("#secciones-botones", (b) => { seccion = Number(b.dataset.seccion); }, pintarGrafica);
+
+    cargarUltimaHora();
+
+    fuente.onopen = () => {
+      // Tras una caída se pudieron perder lecturas: se vuelve a pedir la hora al servidor
+      if (huboError) {
+        huboError = false;
+        cargarUltimaHora();
+      }
+    };
+
+    fuente.onmessage = (evento) => {
+      const d = JSON.parse(evento.data);
+      conectado = true;
+      if (cargado) {
+        aplicarLectura(d);
+        pintarGrafica();
+      } else {
+        pendientes.push(d);
+      }
+      ultimaLectura = new Date(d.recibido_en);
+      actualizarEstado();
+    };
+
+    fuente.onerror = () => {
+      conectado = false;
+      huboError = true;
+      actualizarEstado();
+    };
+
+    setInterval(actualizarEstado, 1000);
+  </script>
+</body>
+</html>
