@@ -9,4 +9,6 @@ class Lectura(models.Model):
     hum_2 = models.FloatField()
     presencia_1 = models.BooleanField()
     presencia_2 = models.BooleanField()
+    ok_1 = models.BooleanField(default=True)
+    ok_2 = models.BooleanField(default=True)
     recibido_en = models.DateTimeField(auto_now_add=True, db_index=True)
