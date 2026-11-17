@@ -64,6 +64,22 @@
     }
     .valor { font-size: clamp(2.2rem, 5vw, 5rem); font-weight: 700; }
     .alerta { background: #7f1d1d; }
+
+        .estado-sensor {
+      font-size: 0.9rem;
+      font-weight: 600;
+      padding: 4px 12px;
+      border-radius: 999px;
+      margin-left: 12px;
+      vertical-align: middle;
+      background: #334155;
+      color: #cbd5e1;
+    }
+    .estado-sensor.conectado { background: #14532d; color: #bbf7d0; }
+    .estado-sensor.desconectado { background: #dc2626; color: #ffffff; }
+    .tarjeta.desconectado { background: #7f1d1d; }
+    .tarjeta.desconectado .valor { color: #fca5a5; }
+
     @media (max-width: 700px) {
       .tarjetas { grid-template-columns: 1fr; }
     }
@@ -83,28 +99,30 @@
   </header>
 
   <div class="cuarto">
-    <h2 class="seccion">{{ nombres.1 }}</h2>
+    <h2 class="seccion">{{ nombres.1 }} <span class="estado-sensor" id="estado-sensor_1">Sin datos</span></h2>
     <div class="tarjetas">
-      <div class="tarjeta"><h3>Temperatura</h3><div class="valor" id="temp_1">--</div></div>
-      <div class="tarjeta"><h3>Humedad</h3><div class="valor" id="hum_1">--</div></div>
+      <div class="tarjeta" id="tarjeta-temp_1"><h3>Temperatura</h3><div class="valor" id="temp_1">--</div></div>
+      <div class="tarjeta" id="tarjeta-hum_1"><h3>Humedad</h3><div class="valor" id="hum_1">--</div></div>
       <div class="tarjeta" id="tarjeta-presencia_1"><h3>Presencia</h3><div class="valor" id="presencia_1">--</div></div>
     </div>
   </div>
 
   <div class="cuarto">
-    <h2 class="seccion">{{ nombres.2 }}</h2>
+    <h2 class="seccion">{{ nombres.2 }} <span class="estado-sensor" id="estado-sensor_2">Sin datos</span></h2>
     <div class="tarjetas">
-      <div class="tarjeta"><h3>Temperatura</h3><div class="valor" id="temp_2">--</div></div>
-      <div class="tarjeta"><h3>Humedad</h3><div class="valor" id="hum_2">--</div></div>
+      <div class="tarjeta" id="tarjeta-temp_2"><h3>Temperatura</h3><div class="valor" id="temp_2">--</div></div>
+      <div class="tarjeta" id="tarjeta-hum_2"><h3>Humedad</h3><div class="valor" id="hum_2">--</div></div>
       <div class="tarjeta" id="tarjeta-presencia_2"><h3>Presencia</h3><div class="valor" id="presencia_2">--</div></div>
     </div>
   </div>
 
   <script>
     const LIMITE_SIN_DATOS_SEG = 60;
+    const LIMITE_SENSOR_SEG = 10;
     const estado = document.getElementById("estado");
     const fuente = new EventSource("/api/stream/");
     let ultimaLectura = null;
+    let datos = null;
     let conectado = true;
 
     function tiempoTranscurrido(seg) {
@@ -130,19 +148,42 @@
       estado.classList.toggle("sin-datos", seg > LIMITE_SIN_DATOS_SEG);
     }
 
-    fuente.onmessage = (evento) => {
-      const d = JSON.parse(evento.data);
-      conectado = true;
+    function mostrarSensores() {
+      if (datos === null) return;
+      const seg = (Date.now() - ultimaLectura.getTime()) / 1000;
+      const sinComunicacion = seg > LIMITE_SENSOR_SEG;
 
       for (const n of [1, 2]) {
-        document.getElementById("temp_" + n).textContent = d["temp_" + n] + " °C";
-        document.getElementById("hum_" + n).textContent = d["hum_" + n] + " %";
-        document.getElementById("presencia_" + n).textContent = d["presencia_" + n] ? "Hay alguien" : "Nadie";
-        document.getElementById("tarjeta-presencia_" + n).className =
-          "tarjeta" + (d["presencia_" + n] ? " alerta" : "");
-      }
+        const desconectado = sinComunicacion || datos["ok_" + n] === false;
 
-      ultimaLectura = new Date(d.recibido_en);
+        const etiqueta = document.getElementById("estado-sensor_" + n);
+        etiqueta.textContent = sinComunicacion
+          ? "Sin comunicación con la ESP32"
+          : (desconectado ? "Sensor desconectado" : "Conectado");
+        etiqueta.className = "estado-sensor " + (desconectado ? "desconectado" : "conectado");
+
+        for (const tipo of ["temp", "hum"]) {
+          document.getElementById("tarjeta-" + tipo + "_" + n).className =
+            "tarjeta" + (desconectado ? " desconectado" : "");
+        }
+        document.getElementById("temp_" + n).textContent =
+          desconectado ? "--" : datos["temp_" + n] + " °C";
+        document.getElementById("hum_" + n).textContent =
+          desconectado ? "--" : datos["hum_" + n] + " %";
+
+        const hayAlguien = !sinComunicacion && datos["presencia_" + n];
+        document.getElementById("presencia_" + n).textContent =
+          sinComunicacion ? "--" : (hayAlguien ? "Hay alguien" : "Nadie");
+        document.getElementById("tarjeta-presencia_" + n).className =
+          "tarjeta" + (hayAlguien ? " alerta" : "");
+      }
+    }
+
+    fuente.onmessage = (evento) => {
+      datos = JSON.parse(evento.data);
+      conectado = true;
+      ultimaLectura = new Date(datos.recibido_en);
+      mostrarSensores();
       actualizarEstado();
     };
 
@@ -151,7 +192,10 @@
       actualizarEstado();
     };
 
-    setInterval(actualizarEstado, 1000);
+    setInterval(() => {
+      mostrarSensores();
+      actualizarEstado();
+    }, 1000);
   </script>
 </body>
 </html>
