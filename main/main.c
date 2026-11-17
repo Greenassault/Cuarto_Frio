@@ -29,7 +29,7 @@ static bool inicializar_modulos(bool *led_disponible)
         ESP_LOGE(TAG, "Fallo al inicializar el sensor de temperatura: %s",
                  esp_err_to_name(err));
         if (*led_disponible) {
-            Built_LED_set_color(50, 0, 0);
+            Built_LED_set_color(0, 0, 25);
         }
         return false;
     }
@@ -65,7 +65,7 @@ void app_main(void)
             ESP_LOGE(TAG, "Fallo al leer el sensor de temperatura: %s",
                      esp_err_to_name(err));
             if (led_disponible) {
-                Built_LED_set_color(50, 0, 0);
+                Built_LED_set_color(25, 0, 0);
             }
         } else {
             int sensores_disponibles = 0;
@@ -82,11 +82,11 @@ void app_main(void)
             mqtt_publisher_enviar(&datos_temp);
             if (led_disponible) {
                 if (sensores_disponibles == NUM_SENSORES_TEMP) {
-                    Built_LED_set_color(0, 50, 0);
+                    Built_LED_set_color(0, 25, 0);
                 } else if (sensores_disponibles == 0) {
-                    Built_LED_set_color(50, 0, 0);
+                    Built_LED_set_color(25, 0, 0);
                 } else {
-                    Built_LED_set_color(50, 50, 0);
+                    Built_LED_set_color(25, 25, 0);
                 }
             }
         }
