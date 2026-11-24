@@ -11,7 +11,7 @@
 
 #define MODO_CAMBIAR_DIRECCION 0
 #define DIRECCION_ACTUAL 1
-#define DIRECCION_NUEVA  2
+#define DIRECCION_NUEVA  4
 
 static const char *TAG = "APP";
 

@@ -1,5 +1,6 @@
 #include "sensor_temp.h"
 #include <stddef.h>
+#include <string.h>
 #include "driver/uart.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -7,8 +8,9 @@
 
 static const char *TAG = "MODULO_TEMP";
 static const uart_port_t UART_RS485 = UART_NUM_1;
-static const uint8_t DIRECCIONES_TEMP[NUM_SENSORES_TEMP] = {1, 2};
+static const uint8_t DIRECCIONES_TEMP[NUM_SENSORES_TEMP] = {1, 2, 3, 4};
 static const int TIEMPO_ESPERA_MS = 300;
+#define LARGO_MAX_RECEPCION 64
 static bool uart_inicializada;
 
 static uint16_t crc_modbus(const uint8_t *datos, size_t largo)
@@ -41,35 +43,67 @@ static bool crc_correcto(const uint8_t *respuesta, size_t largo)
            respuesta[largo - 1] == (crc >> 8);
 }
 
-static int enviar_y_recibir(const uint8_t *mensaje, size_t largo_mensaje,
-                            uint8_t *respuesta, size_t largo_respuesta)
+// Envia una solicitud Modbus y busca la respuesta valida dentro de todo lo
+// recibido. En cables largos el bus queda flotando unos milisegundos cuando el
+// modulo deja de transmitir, y eso genera bytes basura ANTES de la respuesta
+// real. Por eso no se exige que la respuesta empiece en el primer byte: se
+// junta todo lo que llega y se busca una trama con direccion, funcion y CRC
+// correctos.
+static bool enviar_y_recibir(const uint8_t *mensaje, size_t largo_mensaje,
+                             uint8_t funcion, uint8_t *respuesta,
+                             size_t largo_respuesta)
 {
     esp_err_t err = uart_flush_input(UART_RS485);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "No se pudo limpiar la UART: %s", esp_err_to_name(err));
-        return -1;
+        return false;
     }
 
     int escritos = uart_write_bytes(UART_RS485, mensaje, largo_mensaje);
     if (escritos != (int)largo_mensaje) {
         ESP_LOGE(TAG, "No se pudo enviar la solicitud Modbus");
-        return -1;
+        return false;
     }
 
     err = uart_wait_tx_done(UART_RS485, pdMS_TO_TICKS(100));
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Error esperando el envio Modbus: %s", esp_err_to_name(err));
-        return -1;
+        return false;
     }
 
     err = uart_flush_input(UART_RS485);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "No se pudo descartar el eco UART: %s", esp_err_to_name(err));
-        return -1;
+        return false;
     }
 
-    return uart_read_bytes(UART_RS485, respuesta, largo_respuesta,
-                           pdMS_TO_TICKS(TIEMPO_ESPERA_MS));
+    uint8_t recibido[LARGO_MAX_RECEPCION];
+    int total = uart_read_bytes(UART_RS485, recibido, sizeof(recibido),
+                                pdMS_TO_TICKS(TIEMPO_ESPERA_MS));
+    if (total < 0) {
+        total = 0;
+    }
+
+    const uint8_t direccion = mensaje[0];
+    for (int i = 0; i + (int)largo_respuesta <= total; i++) {
+        if (recibido[i] == direccion && recibido[i + 1] == funcion &&
+            crc_correcto(&recibido[i], largo_respuesta)) {
+            if (i > 0) {
+                ESP_LOGD(TAG, "Dir %u: %d bytes de ruido antes de la respuesta",
+                         direccion, i);
+            }
+            memcpy(respuesta, &recibido[i], largo_respuesta);
+            return true;
+        }
+    }
+
+    // Diagnostico: muestra lo que llego para distinguir silencio de ruido.
+    ESP_LOGW(TAG, "Dir %u: sin respuesta valida (%d bytes recibidos)",
+             direccion, total);
+    if (total > 0) {
+        ESP_LOG_BUFFER_HEX_LEVEL(TAG, recibido, total, ESP_LOG_WARN);
+    }
+    return false;
 }
 
 static bool leer_sensor(uint8_t direccion, float *temperatura, float *humedad)
@@ -78,11 +112,9 @@ static bool leer_sensor(uint8_t direccion, float *temperatura, float *humedad)
     agregar_crc(mensaje, 6);
 
     uint8_t respuesta[9];
-    int recibidos = enviar_y_recibir(mensaje, sizeof(mensaje), respuesta,
-                                     sizeof(respuesta));
-    if (recibidos != sizeof(respuesta) || respuesta[0] != direccion ||
-        respuesta[1] != 0x04 || respuesta[2] != 4 ||
-        !crc_correcto(respuesta, sizeof(respuesta))) {
+    if (!enviar_y_recibir(mensaje, sizeof(mensaje), 0x04, respuesta,
+                          sizeof(respuesta)) ||
+        respuesta[2] != 4) {
         return false;
     }
 
@@ -99,10 +131,8 @@ bool temp_cambiar_direccion(uint8_t actual, uint8_t nueva)
     agregar_crc(mensaje, 6);
 
     uint8_t respuesta[8];
-    int recibidos = enviar_y_recibir(mensaje, sizeof(mensaje), respuesta,
-                                     sizeof(respuesta));
-    return recibidos == sizeof(respuesta) && respuesta[0] == actual &&
-           respuesta[1] == 0x06 && crc_correcto(respuesta, sizeof(respuesta));
+    return enviar_y_recibir(mensaje, sizeof(mensaje), 0x06, respuesta,
+                            sizeof(respuesta));
 }
 
 esp_err_t temp_init(void)
