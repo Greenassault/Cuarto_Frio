@@ -35,19 +35,30 @@
     }
     .enlace:hover { background: #334155; }
     .enlaces { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
-    .cuarto {
+    /* Una fila por radar de presencia: sus 2 secciones de temperatura + la presencia */
+    .grupo-panel {
       flex: 1;
+      display: grid;
+      grid-template-columns: 2fr 2fr 1fr;
+      gap: 16px;
+      margin-top: 16px;
+      padding: 16px;
+      border: 1px solid #1e293b;
+      border-radius: 14px;
+    }
+    .cuarto {
       display: flex;
       flex-direction: column;
-      margin-top: 16px;
+      min-width: 0;
     }
-    h2.seccion { margin: 0 0 12px; font-size: 1.4rem; color: #cbd5e1; }
+    h2.seccion { margin: 0 0 12px; font-size: clamp(1rem, 1.4vw, 1.3rem); color: #cbd5e1; }
     .tarjetas {
       flex: 1;
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 16px;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
     }
+    .cuarto.presencia .tarjetas { grid-template-columns: 1fr; }
     .tarjeta {
       background: #1e293b;
       border-radius: 12px;
@@ -59,19 +70,21 @@
     }
     .tarjeta h3 {
       margin: 0 0 12px;
-      font-size: clamp(1rem, 1.6vw, 1.5rem);
+      font-size: clamp(0.95rem, 1.2vw, 1.3rem);
       color: #94a3b8;
     }
-    .valor { font-size: clamp(2.2rem, 5vw, 5rem); font-weight: 700; }
+    .valor { font-size: clamp(1.8rem, 3.4vw, 4rem); font-weight: 700; }
+    .presencia .valor { font-size: clamp(1.4rem, 2.2vw, 2.6rem); }
     .alerta { background: #7f1d1d; }
 
-        .estado-sensor {
+    .estado-sensor {
       font-size: 0.9rem;
       font-weight: 600;
       padding: 4px 12px;
       border-radius: 999px;
-      margin-left: 12px;
+      margin-left: 8px;
       vertical-align: middle;
+      white-space: nowrap;
       background: #334155;
       color: #cbd5e1;
     }
@@ -80,8 +93,12 @@
     .tarjeta.desconectado { background: #7f1d1d; }
     .tarjeta.desconectado .valor { color: #fca5a5; }
 
+    @media (max-width: 1100px) {
+      .grupo-panel { grid-template-columns: 1fr 1fr; }
+      .cuarto.presencia { grid-column: 1 / -1; }
+    }
     @media (max-width: 700px) {
-      .tarjetas { grid-template-columns: 1fr; }
+      .grupo-panel { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -98,25 +115,32 @@
     </div>
   </header>
 
-  <div class="cuarto">
-    <h2 class="seccion">{{ nombres.1 }} <span class="estado-sensor" id="estado-sensor_1">Sin datos</span></h2>
-    <div class="tarjetas">
-      <div class="tarjeta" id="tarjeta-temp_1"><h3>Temperatura</h3><div class="valor" id="temp_1">--</div></div>
-      <div class="tarjeta" id="tarjeta-hum_1"><h3>Humedad</h3><div class="valor" id="hum_1">--</div></div>
-      <div class="tarjeta" id="tarjeta-presencia_1"><h3>Presencia</h3><div class="valor" id="presencia_1">--</div></div>
+  {% for grupo in grupos %}
+  <div class="grupo-panel">
+    {% for numero, nombre in grupo.sensores %}
+    <div class="cuarto">
+      <h2 class="seccion">{{ nombre }} <span class="estado-sensor" id="estado-sensor_{{ numero }}">Sin datos</span></h2>
+      <div class="tarjetas">
+        <div class="tarjeta" id="tarjeta-temp_{{ numero }}"><h3>Temperatura</h3><div class="valor" id="temp_{{ numero }}">--</div></div>
+        <div class="tarjeta" id="tarjeta-hum_{{ numero }}"><h3>Humedad</h3><div class="valor" id="hum_{{ numero }}">--</div></div>
+      </div>
+    </div>
+    {% endfor %}
+    <div class="cuarto presencia">
+      <h2 class="seccion">Presencia</h2>
+      <div class="tarjetas">
+        <div class="tarjeta" id="tarjeta-presencia_{{ grupo.presencia }}"><h3>{{ grupo.zona }}</h3><div class="valor" id="presencia_{{ grupo.presencia }}">--</div></div>
+      </div>
     </div>
   </div>
+  {% endfor %}
 
-  <div class="cuarto">
-    <h2 class="seccion">{{ nombres.2 }} <span class="estado-sensor" id="estado-sensor_2">Sin datos</span></h2>
-    <div class="tarjetas">
-      <div class="tarjeta" id="tarjeta-temp_2"><h3>Temperatura</h3><div class="valor" id="temp_2">--</div></div>
-      <div class="tarjeta" id="tarjeta-hum_2"><h3>Humedad</h3><div class="valor" id="hum_2">--</div></div>
-      <div class="tarjeta" id="tarjeta-presencia_2"><h3>Presencia</h3><div class="valor" id="presencia_2">--</div></div>
-    </div>
-  </div>
-
+  {{ nombres|json_script:"nombres" }}
+  {{ presencias|json_script:"presencias" }}
   <script>
+    // Números de los sensores de temperatura (1 a 4) y de presencia (1 y 2)
+    const SENSORES = Object.keys(JSON.parse(document.getElementById("nombres").textContent)).map(Number);
+    const PRESENCIAS = Object.keys(JSON.parse(document.getElementById("presencias").textContent)).map(Number);
     const LIMITE_SIN_DATOS_SEG = 60;
     const LIMITE_SENSOR_SEG = 10;
     const estado = document.getElementById("estado");
@@ -153,8 +177,9 @@
       const seg = (Date.now() - ultimaLectura.getTime()) / 1000;
       const sinComunicacion = seg > LIMITE_SENSOR_SEG;
 
-      for (const n of [1, 2]) {
-        const desconectado = sinComunicacion || datos["ok_" + n] === false;
+      // Cada sensor de temperatura: en rojo si no responde (ok falso) o si la ESP32 no manda nada
+      for (const n of SENSORES) {
+        const desconectado = sinComunicacion || datos["ok_" + n] !== true;
 
         const etiqueta = document.getElementById("estado-sensor_" + n);
         etiqueta.textContent = sinComunicacion
@@ -170,7 +195,9 @@
           desconectado ? "--" : datos["temp_" + n] + " °C";
         document.getElementById("hum_" + n).textContent =
           desconectado ? "--" : datos["hum_" + n] + " %";
+      }
 
+      for (const n of PRESENCIAS) {
         const hayAlguien = !sinComunicacion && datos["presencia_" + n];
         document.getElementById("presencia_" + n).textContent =
           sinComunicacion ? "--" : (hayAlguien ? "Hay alguien" : "Nadie");

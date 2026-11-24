@@ -102,10 +102,11 @@
     let conectado = true;
     let huboError = false;
     let variable = "temp";
-    let seccion = 0;                     // 0 = ambas secciones
+    let seccion = 0;                     // 0 = todas las secciones
+    const CANTIDAD_SENSORES = Object.keys(NOMBRES).length;
 
-    // Un registro por intervalo: {x, n, s}. n = lecturas del intervalo; s = suma de
-    // [temp_1, hum_1, temp_2, hum_2]. El punto que se dibuja es s / n.
+    // Un registro por intervalo (ver GraficaComun.grupoVacio): por cada sensor, cuántas
+    // lecturas buenas hubo y la suma de temperatura y humedad. El punto es suma / n.
     let intervalo = MINUTO_MS;           // el servidor lo confirma al cargar
     let grupos = new Map();
     let ultimoX = null;                  // hora de la última lectura ya sumada
@@ -142,11 +143,10 @@
       const inicio = Math.floor(x / intervalo) * intervalo;
       let g = grupos.get(inicio);
       if (!g) {
-        g = { x: inicio, n: 0, s: [0, 0, 0, 0] };
+        g = GraficaComun.grupoVacio(inicio, CANTIDAD_SENSORES);
         grupos.set(inicio, g);
       }
-      g.n += 1;
-      [d.temp_1, d.hum_1, d.temp_2, d.hum_2].forEach((v, i) => { g.s[i] += v; });
+      GraficaComun.sumarLectura(g, d);   // los sensores con ok falso no se suman
       ultimoX = x;
       for (const k of grupos.keys()) {
         if (k < ultimoX - VENTANA_MS) grupos.delete(k);
@@ -175,7 +175,7 @@
         (variable === "temp" ? "Temperatura" : "Humedad") + " en la última hora";
       document.getElementById("grafica-nota").textContent =
         "Cada punto es el promedio de " + GraficaComun.textoIntervalo(intervalo / 1000) +
-        ". Si la línea se corta, en ese momento no llegaron datos.";
+        ". Si la línea de una sección se corta, en ese momento no llegaron datos de ese sensor.";
     }
 
     // Al abrir la página (y al reconectar) el servidor entrega la última hora ya promediada

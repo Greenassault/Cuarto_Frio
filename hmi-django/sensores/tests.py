@@ -90,3 +90,37 @@ class RetencionTests(TestCase):
         nueva = crear(hace_seg=(DIAS_RETENCION - 1) * dia)
         self.assertEqual(borrar_lecturas_viejas(), 1)
         self.assertEqual(list(Lectura.objects.values_list("pk", flat=True)), [nueva.pk])
+
+
+class PaginasTests(TestCase):
+    def test_panel_tiene_4_secciones_y_2_presencias(self):
+        html = self.client.get("/").content.decode()
+        for n in (1, 2, 3, 4):
+            self.assertIn(f'id="estado-sensor_{n}"', html)
+        self.assertIn("Cuarto frío 1 - Sección D", html)
+        self.assertIn('id="presencia_2"', html)
+        # La presencia 1 va con A y B; la 2 con C y D
+        self.assertLess(html.index("Sección B"), html.index('id="presencia_1"'))
+        self.assertLess(html.index('id="presencia_1"'), html.index("Sección C"))
+
+    def test_base_de_datos_muestra_guiones_si_no_responde(self):
+        crear()
+        html = self.client.get("/datos/").content.decode()
+        self.assertIn("Cuarto frío 1 - Sección C", html)
+        self.assertIn(">--</td>", html)
+        self.assertIn(">4.4</td>", html)
+
+    def test_csv_con_columnas_nuevas(self):
+        crear()
+        respuesta = self.client.get("/datos/csv/")
+        lineas = b"".join(respuesta.streaming_content).decode("utf-8-sig").splitlines()
+        encabezados = lineas[0].split(",")
+        self.assertEqual(len(encabezados), 1 + 4 * 2 + 2)
+        self.assertEqual(encabezados[-1], "Presencia - Secciones C y D")
+        fila = lineas[1].split(",")
+        self.assertEqual(fila[5:7], ["", ""])          # Sección C sin respuesta: vacío
+        self.assertEqual(fila[7:11], ["4.4", "70.1", "No", "Sí"])
+
+    def test_paginas_de_graficas_cargan(self):
+        for url in ("/grafica/", "/historial/"):
+            self.assertEqual(self.client.get(url).status_code, 200)

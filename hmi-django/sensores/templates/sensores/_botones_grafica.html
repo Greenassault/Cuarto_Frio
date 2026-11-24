@@ -14,7 +14,7 @@
   <div class="opcion">
     <span class="etiqueta">Sección:</span>
     <div class="grupo" id="secciones-botones">
-      <button data-seccion="0" class="activo" aria-pressed="true">Ambas secciones</button>
+      <button data-seccion="0" class="activo" aria-pressed="true">Todas</button>
       {% for numero, seccion in secciones.items %}
       <button data-seccion="{{ numero }}" aria-pressed="false">{{ seccion }}</button>
       {% endfor %}

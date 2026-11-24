@@ -1,9 +1,13 @@
 // Lógica común de las gráficas de temperatura y humedad (página "Gráfica" y "Ver estadísticas").
 // Los dos lugares dibujan igual: un punto por intervalo con el promedio, eje vertical
 // ajustado a los datos, huecos sin línea y botones de variable y de sección.
-// Necesita Chart.js cargado antes.
+// Cada sensor (Sección A, B, C, D) es una línea propia; las lecturas con ok falso
+// no se usan. Necesita Chart.js cargado antes.
 const GraficaComun = (() => {
-  const COLORES = { 1: "#38bdf8", 2: "#fbbf24" };
+  // Colores bien distintos sobre fondo oscuro. C y D además van punteadas para
+  // poder distinguirlas aunque alguien no vea bien los colores.
+  const COLORES = { 1: "#38bdf8", 2: "#fbbf24", 3: "#f472b6", 4: "#4ade80" };
+  const PUNTEADO = { 1: [], 2: [], 3: [6, 4], 4: [6, 4] };
 
   // "300" -> "5 minutos", "7200" -> "2 horas"
   function textoIntervalo(seg) {
@@ -13,30 +17,48 @@ const GraficaComun = (() => {
     return plural(Math.round(seg / 86400), "día");
   }
 
-  // Puntos del servidor [fecha, n, temp_1, hum_1, temp_2, hum_2] -> {x, n, s}
-  // x es la hora en milisegundos; s son las sumas (promedio * n), para poder seguir
-  // sumando lecturas nuevas en vivo.
+  // Un intervalo de la gráfica: {x, n, temp, hum}. x es la hora en milisegundos.
+  // Por sensor (posición 0 = sensor 1): n = lecturas buenas, temp y hum = sus sumas
+  // (promedio * n), para poder seguir sumando lecturas nuevas en vivo.
+  function grupoVacio(x, cantidad) {
+    return { x: x, n: Array(cantidad).fill(0), temp: Array(cantidad).fill(0), hum: Array(cantidad).fill(0) };
+  }
+
+  // Suma una lectura en vivo (como llega de /api/stream/) a su intervalo.
+  // Igual que en el servidor, de cada sensor solo cuentan las lecturas con ok verdadero.
+  function sumarLectura(g, d) {
+    g.n.forEach((_, i) => {
+      const n = i + 1;
+      if (d["ok_" + n] === true && d["temp_" + n] !== null && d["hum_" + n] !== null) {
+        g.n[i] += 1;
+        g.temp[i] += d["temp_" + n];
+        g.hum[i] += d["hum_" + n];
+      }
+    });
+  }
+
+  // Puntos del servidor [fecha, [n_1..n_4], [temp_1..temp_4], [hum_1..hum_4]] -> grupos
   function puntosDeServidor(lista) {
-    return lista.map(([fecha, n, t1, h1, t2, h2]) => ({
-      x: Date.parse(fecha), n: n, s: [t1 * n, h1 * n, t2 * n, h2 * n]
+    return lista.map(([fecha, n, temp, hum]) => ({
+      x: Date.parse(fecha),
+      n: n,
+      temp: temp.map((v, i) => (v === null ? 0 : v * n[i])),
+      hum: hum.map((v, i) => (v === null ? 0 : v * n[i]))
     }));
   }
 
-  // Posición del dato dentro de s: temp_1, hum_1, temp_2, hum_2
-  function indiceDato(numero, variable) {
-    return (numero - 1) * 2 + (variable === "temp" ? 0 : 1);
-  }
-
-  // Puntos ordenados por hora -> puntos de la línea. Donde hayCorte(anterior, actual)
-  // sea verdadero se deja un hueco (y: null) en vez de unir con una recta.
-  function serie(puntos, indice, hayCorte) {
+  // Grupos ordenados por hora -> puntos de la línea de un sensor. Se deja un hueco
+  // (y: null) donde hayCorte(anterior, actual) sea verdadero o donde ese sensor no
+  // tuvo ninguna lectura buena en el intervalo.
+  function serie(puntos, numero, variable, hayCorte) {
+    const i = numero - 1;
     const resultado = [];
     let previo = null;
     for (const p of puntos) {
       if (previo !== null && hayCorte(previo, p.x)) {
         resultado.push({ x: (previo + p.x) / 2, y: null });
       }
-      resultado.push({ x: p.x, y: p.s[indice] / p.n });
+      resultado.push({ x: p.x, y: p.n[i] ? p[variable][i] / p.n[i] : null });
       previo = p.x;
     }
     return resultado;
@@ -64,7 +86,8 @@ const GraficaComun = (() => {
           }
         },
         plugins: {
-          legend: { labels: { color: "#e2e8f0" } },
+          // La leyenda muestra un trozo de línea (sólida o punteada) del color de cada sensor
+          legend: { labels: { color: "#e2e8f0", usePointStyle: true, pointStyle: "line", pointStyleWidth: 36 } },
           tooltip: {
             callbacks: {
               title: (items) => opciones.tituloTooltip(items[0].parsed.x),
@@ -93,16 +116,17 @@ const GraficaComun = (() => {
     y.max = max + margen;
   }
 
-  // Dibuja lo elegido en los botones. seccion: 0 = ambas, o el número de la sección.
+  // Dibuja lo elegido en los botones. seccion: 0 = todas, o el número de la sección.
   // d: { nombres, seccion, variable, puntos, hayCorte, xMin, xMax }
   function dibujar(grafica, d) {
     const numeros = Object.keys(d.nombres).map(Number);
     const visibles = d.seccion === 0 ? numeros : [d.seccion];
     grafica.data.datasets = visibles.map((numero) => ({
       label: d.nombres[numero],
-      data: serie(d.puntos, indiceDato(numero, d.variable), d.hayCorte),
+      data: serie(d.puntos, numero, d.variable, d.hayCorte),
       borderColor: COLORES[numero],
       backgroundColor: COLORES[numero],
+      borderDash: PUNTEADO[numero],
       borderWidth: 2,
       pointRadius: 1.5,
       pointHoverRadius: 4,
@@ -134,5 +158,5 @@ const GraficaComun = (() => {
     });
   }
 
-  return { COLORES, textoIntervalo, puntosDeServidor, crear, dibujar, conectarBotones };
+  return { COLORES, textoIntervalo, grupoVacio, sumarLectura, puntosDeServidor, crear, dibujar, conectarBotones };
 })();

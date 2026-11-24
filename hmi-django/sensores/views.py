@@ -27,6 +27,14 @@ NOMBRES_SENSORES = {
     for numero, seccion in NOMBRES_SECCIONES.items()
 }
 
+# Cada radar de presencia vigila la zona de dos secciones. En el panel se muestra
+# junto a ellas: número de presencia -> (zona que vigila, sensores de esa zona).
+ZONAS_PRESENCIA = {
+    1: ("Secciones A y B", (1, 2)),
+    2: ("Secciones C y D", (3, 4)),
+}
+NOMBRES_PRESENCIA = {numero: f"Presencia - {zona}" for numero, (zona, _) in ZONAS_PRESENCIA.items()}
+
 
 # Nombres de los botones del panel; también son el título de cada página destino.
 NOMBRES_BOTONES = {
@@ -39,8 +47,21 @@ def contexto_nombres():
     return {
         "nombres": NOMBRES_SENSORES,
         "secciones": NOMBRES_SECCIONES,
+        "presencias": {numero: zona for numero, (zona, _) in ZONAS_PRESENCIA.items()},
         "botones": NOMBRES_BOTONES,
     }
+
+
+def grupos_panel():
+    """Filas del panel: cada una con sus sensores de temperatura y su presencia."""
+    return [
+        {
+            "presencia": numero,
+            "zona": zona,
+            "sensores": [(n, NOMBRES_SENSORES[n]) for n in sensores],
+        }
+        for numero, (zona, sensores) in ZONAS_PRESENCIA.items()
+    ]
 
 def lectura_a_dict(lectura):
     """Lectura -> diccionario para el stream en vivo y la API (mismos nombres que
@@ -81,7 +102,7 @@ def stream(request):
 
 
 def panel(request):
-    return render(request, "sensores/panel.html", contexto_nombres())
+    return render(request, "sensores/panel.html", {**contexto_nombres(), "grupos": grupos_panel()})
 
 MAX_TABLA = 100
 
@@ -222,9 +243,20 @@ def datos(request):
     pagina = Paginator(filas, LECTURAS_POR_PAGINA).get_page(request.GET.get("pagina"))
     filtro = request.GET.copy()
     filtro.pop("pagina", None)
+    # La plantilla no puede leer temp_1..temp_4 en un ciclo; se arman aquí.
+    # Si el sensor no respondió (ok falso), temp y hum vienen vacíos (None).
+    filas_tabla = [
+        {
+            "recibido_en": l.recibido_en,
+            "sensores": [(getattr(l, f"temp_{n}"), getattr(l, f"hum_{n}")) for n in SENSORES],
+            "presencias": [l.presencia_1, l.presencia_2],
+        }
+        for l in pagina
+    ]
     return render(request, "sensores/datos.html", {
         **contexto_nombres(),
         "pagina": pagina,
+        "filas_tabla": filas_tabla,
         "error": error,
         "filtro": filtro.urlencode(),
         "desde": request.GET.get("desde", ""),
@@ -251,13 +283,12 @@ def datos_csv(request):
     except ValueError:
         desfase = 0
 
+    # Una celda vacía en temperatura o humedad = ese sensor no respondió (ok falso)
     encabezados = ["Fecha y hora"]
     for nombre in NOMBRES_SENSORES.values():
-        encabezados += [
-            f"{nombre} - Temperatura (°C)",
-            f"{nombre} - Humedad (%)",
-            f"{nombre} - Presencia",
-        ]
+        encabezados += [f"{nombre} - Temperatura (°C)", f"{nombre} - Humedad (%)"]
+    encabezados += list(NOMBRES_PRESENCIA.values())
+    campos = [f"{campo}_{n}" for n in SENSORES for campo in ("temp", "hum")]
 
     def si_no(valor):
         return "Sí" if valor else "No"
@@ -266,15 +297,14 @@ def datos_csv(request):
         escritor = csv.writer(_Escritura())
         yield "﻿"  # marca para que Excel lea bien los acentos
         yield escritor.writerow(encabezados)
-        consulta = filas.values_list(
-            "recibido_en", "temp_1", "hum_1", "presencia_1", "temp_2", "hum_2", "presencia_2"
-        )
-        for momento, t1, h1, p1, t2, h2, p2 in consulta.iterator():
+        consulta = filas.values_list("recibido_en", *campos, "presencia_1", "presencia_2")
+        for momento, *valores, p1, p2 in consulta.iterator():
             local = momento - timedelta(minutes=desfase)
             yield escritor.writerow([
                 local.strftime("%Y-%m-%d %H:%M:%S"),
-                t1, h1, si_no(p1),
-                t2, h2, si_no(p2),
+                *valores,
+                si_no(p1),
+                si_no(p2),
             ])
 
     respuesta = StreamingHttpResponse(generar(), content_type="text/csv; charset=utf-8")
