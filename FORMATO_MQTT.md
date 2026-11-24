@@ -72,7 +72,8 @@ Los nombres del HMI están en `NOMBRES_SECCIONES` de `hmi-django/sensores/views.
 3. **Si falta `ok_N` en el mensaje, se toma como `false`.** Así, un firmware
    viejo que solo manda 2 sensores no hace aparecer lecturas falsas en las
    Secciones C y D.
-4. Si falta `temp_N` o `hum_N`, se guarda vacío.
+4. Si falta `temp_N` o `hum_N` (o no es un número), el sensor N se toma como
+   `ok_N` falso aunque el mensaje diga `true`.
 5. Si falta `sensor_id`, `presencia_1` o `presencia_2`, o el JSON está mal
    escrito, el HMI descarta el mensaje completo y lo anota en la terminal.
 

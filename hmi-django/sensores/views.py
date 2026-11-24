@@ -4,20 +4,23 @@ import time
 from datetime import datetime, timedelta, timezone as zona_utc
 
 from django.core.paginator import Paginator
-from django.db.models import Avg, Max, Min
+from django.db.models import Avg, Max, Min, Q
 from django.http import JsonResponse, StreamingHttpResponse
 from django.shortcuts import render
 from django.utils import timezone
 from django.views.decorators.http import require_GET
 
-from .models import Lectura
+from .models import SENSORES, Lectura
 
-# Nombres que ve el usuario. La clave es el número del sensor (temp_1, hum_1,
-# presencia_1 -> 1). Para cambiar un nombre en toda la interfaz, editar aquí.
+# Nombres que ve el usuario. La clave es el número del sensor de temperatura
+# (temp_1, hum_1, ok_1 -> 1). Para cambiar un nombre en toda la interfaz, editar aquí.
+# Qué dirección Modbus tiene cada número: ver FORMATO_MQTT.md.
 NOMBRE_CUARTO = "Cuarto frío 1"
 NOMBRES_SECCIONES = {
     1: "Sección A",
     2: "Sección B",
+    3: "Sección C",
+    4: "Sección D",
 }
 NOMBRES_SENSORES = {
     numero: f"{NOMBRE_CUARTO} - {seccion}"
@@ -40,18 +43,17 @@ def contexto_nombres():
     }
 
 def lectura_a_dict(lectura):
-    return {
-        "sensor_id": lectura.sensor_id,
-        "temp_1": lectura.temp_1,
-        "hum_1": lectura.hum_1,
-        "temp_2": lectura.temp_2,
-        "hum_2": lectura.hum_2,
-        "presencia_1": lectura.presencia_1,
-        "presencia_2": lectura.presencia_2,
-        "ok_1": lectura.ok_1,
-        "ok_2": lectura.ok_2,
-        "recibido_en": lectura.recibido_en.isoformat(),
-    }
+    """Lectura -> diccionario para el stream en vivo y la API (mismos nombres que
+    el mensaje MQTT, ver FORMATO_MQTT.md). Si ok_N es falso, temp_N y hum_N son None."""
+    datos = {"sensor_id": lectura.sensor_id}
+    for n in SENSORES:
+        datos[f"temp_{n}"] = getattr(lectura, f"temp_{n}")
+        datos[f"hum_{n}"] = getattr(lectura, f"hum_{n}")
+        datos[f"ok_{n}"] = getattr(lectura, f"ok_{n}")
+    datos["presencia_1"] = lectura.presencia_1
+    datos["presencia_2"] = lectura.presencia_2
+    datos["recibido_en"] = lectura.recibido_en.isoformat()
+    return datos
 
 
 def ultima_lectura(request):
@@ -98,34 +100,49 @@ def intervalo_grafica(duracion_seg):
     return INTERVALOS_GRAFICA[-1]
 
 
-class Promediador:
-    """Agrupa lecturas (temp_1, hum_1, temp_2, hum_2) por intervalo y las promedia.
+# Campos que recibe Promediador.sumar, en este orden: ok_1, temp_1, hum_1, ok_2, ...
+CAMPOS_GRAFICA = tuple(f"{campo}_{n}" for n in SENSORES for campo in ("ok", "temp", "hum"))
 
-    Solo sirve para dibujar: no modifica ni guarda nada. Cada punto sale como
-    [inicio del intervalo, cuántas lecturas tiene (n), temp_1, hum_1, temp_2, hum_2],
-    con n para que el navegador pueda seguir sumando lecturas nuevas en vivo.
+
+class Promediador:
+    """Agrupa lecturas por intervalo y promedia cada sensor por separado.
+
+    Solo sirve para dibujar: no modifica ni guarda nada. De cada sensor solo se
+    usan las lecturas con ok verdadero. Cada punto sale como
+    [inicio del intervalo, [n_1..n_4], [temp_1..temp_4], [hum_1..hum_4]]
+    donde n_N es cuántas lecturas buenas tuvo el sensor N en ese intervalo (para
+    que el navegador pueda seguir sumando lecturas nuevas en vivo). Si n_N es 0,
+    el promedio de ese sensor es None y la gráfica deja un hueco.
     """
 
     def __init__(self, intervalo):
         self.intervalo = intervalo
         self.grupos = {}
 
-    def sumar(self, momento, *valores):
+    def sumar(self, momento, valores):
         segundos = int(momento.timestamp())
         inicio = segundos - segundos % self.intervalo
-        grupo = self.grupos.setdefault(inicio, [0, 0.0, 0.0, 0.0, 0.0])
-        grupo[0] += 1
-        for i, valor in enumerate(valores, start=1):
-            grupo[i] += valor
+        # Por sensor: [lecturas buenas, suma de temperatura, suma de humedad]
+        grupo = self.grupos.setdefault(inicio, [[0, 0.0, 0.0] for _ in SENSORES])
+        for i, sensor in enumerate(grupo):
+            ok, temp, hum = valores[3 * i:3 * i + 3]
+            if ok and temp is not None and hum is not None:
+                sensor[0] += 1
+                sensor[1] += temp
+                sensor[2] += hum
 
     def puntos(self):
+        def promedio(suma, n):
+            return round(suma / n, 2) if n else None
+
         resultado = []
         for inicio in sorted(self.grupos):
-            n, *sumas = self.grupos[inicio]
+            grupo = self.grupos[inicio]
             resultado.append([
                 datetime.fromtimestamp(inicio, tz=zona_utc.utc).isoformat(),
-                n,
-                *[round(suma / n, 2) for suma in sumas],
+                [n for n, _, _ in grupo],
+                [promedio(temp, n) for n, temp, _ in grupo],
+                [promedio(hum, n) for n, _, hum in grupo],
             ])
         return resultado
 
@@ -162,12 +179,12 @@ def api_grafica(request):
     consulta = (
         Lectura.objects.filter(recibido_en__gte=desde)
         .order_by("recibido_en")
-        .values_list("recibido_en", "temp_1", "hum_1", "temp_2", "hum_2")
+        .values_list("recibido_en", *CAMPOS_GRAFICA)
     )
     promediador = Promediador(intervalo)
     ultima = None
     for momento, *valores in consulta.iterator():
-        promediador.sumar(momento, *valores)
+        promediador.sumar(momento, valores)
         ultima = momento
     return JsonResponse({
         "intervalo": intervalo,
@@ -281,13 +298,13 @@ def api_historial(request):
     total = filas.count()
     intervalo = intervalo_grafica((hasta - desde).total_seconds())
 
-    # Se recorren todas las lecturas originales para detectar interrupciones de datos;
+    # Se recorren todas las lecturas originales para detectar interrupciones de datos
+    # (cualquier mensaje cuenta, aunque algún sensor venga con ok falso);
     # al mismo tiempo se promedian por intervalo solo para dibujar la gráfica.
     promediador = Promediador(intervalo)
     interrupciones = []
     anterior = None
-    campos = ("recibido_en", "temp_1", "hum_1", "temp_2", "hum_2")
-    consulta = filas.order_by("recibido_en").values_list(*campos)
+    consulta = filas.order_by("recibido_en").values_list("recibido_en", *CAMPOS_GRAFICA)
     for fila in consulta.iterator():
         momento = fila[0]
         if anterior is not None:
@@ -299,7 +316,7 @@ def api_historial(request):
                     "segundos": int(segundos),
                 })
         anterior = momento
-        promediador.sumar(momento, *fila[1:])
+        promediador.sumar(momento, fila[1:])
 
     # Interrupción abierta: la última lectura es vieja y no ha llegado nada nuevo
     fin = min(hasta, ahora)
@@ -312,10 +329,14 @@ def api_historial(request):
                 "segundos": int(segundos),
             })
 
-    resumen = filas.aggregate(
-        temp_1_min=Min("temp_1"), temp_1_max=Max("temp_1"), temp_1_prom=Avg("temp_1"),
-        temp_2_min=Min("temp_2"), temp_2_max=Max("temp_2"), temp_2_prom=Avg("temp_2"),
-    )
+    # Mínimo, máximo y promedio de temperatura por sensor, solo con lecturas buenas
+    resumen = {}
+    for n in SENSORES:
+        buenas = Q(**{f"ok_{n}": True})
+        resumen[f"temp_{n}_min"] = Min(f"temp_{n}", filter=buenas)
+        resumen[f"temp_{n}_max"] = Max(f"temp_{n}", filter=buenas)
+        resumen[f"temp_{n}_prom"] = Avg(f"temp_{n}", filter=buenas)
+    resumen = filas.aggregate(**resumen)
 
     ultimas = [
         lectura_a_dict(lectura)
