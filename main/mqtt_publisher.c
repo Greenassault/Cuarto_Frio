@@ -120,26 +120,44 @@ static void valores_sensor(const datos_temperatura_t *d, int i, float *temp, flo
     *ok = true;
 }
 
+// Arma el JSON del topic cuartofrio/datos. El formato está documentado en
+// FORMATO_MQTT.md (raíz del repo): temp_N, hum_N y ok_N para cada sensor
+// (N = 1..NUM_SENSORES_TEMP, Secciones A a D) y presencia_1, presencia_2.
 void mqtt_publisher_enviar(const datos_temperatura_t *datos)
 {
     if (!mqtt_conectado) {
         return;
     }
 
-    float t1, h1, t2, h2;
-    bool ok1, ok2;
-    valores_sensor(datos, 0, &t1, &h1, &ok1);
-    valores_sensor(datos, 1, &t2, &h2, &ok2);
+    // Unos 50 caracteres por sensor más el inicio y el final: 512 sobra para 4.
+    char msg[512];
+    size_t largo = 0;
+    int escritos = snprintf(msg, sizeof(msg), "{\"sensor_id\": \"%s\", ", SENSOR_ID);
 
-    char msg[320];
-    snprintf(msg, sizeof(msg),
-             "{\"sensor_id\": \"%s\", "
-             "\"temp_1\": %.1f, \"hum_1\": %.1f, "
-             "\"temp_2\": %.1f, \"hum_2\": %.1f, "
-             "\"presencia_1\": false, \"presencia_2\": false, "
-             "\"ok_1\": %s, \"ok_2\": %s}",
-             SENSOR_ID, t1, h1, t2, h2,
-             ok1 ? "true" : "false", ok2 ? "true" : "false");
+    for (int i = 0; i < NUM_SENSORES_TEMP && escritos >= 0; i++) {
+        largo += escritos;
+        if (largo >= sizeof(msg)) {
+            break;
+        }
+        float t, h;
+        bool ok;
+        valores_sensor(datos, i, &t, &h, &ok);
+        escritos = snprintf(msg + largo, sizeof(msg) - largo,
+                            "\"temp_%d\": %.1f, \"hum_%d\": %.1f, \"ok_%d\": %s, ",
+                            i + 1, t, i + 1, h, i + 1, ok ? "true" : "false");
+    }
+
+    if (escritos >= 0 && largo + escritos < sizeof(msg)) {
+        largo += escritos;
+        // TODO: cuando se conecten los radares, mandar su lectura real.
+        escritos = snprintf(msg + largo, sizeof(msg) - largo,
+                            "\"presencia_1\": false, \"presencia_2\": false}");
+    }
+
+    if (escritos < 0 || largo + escritos >= sizeof(msg)) {
+        ESP_LOGE(TAG, "El mensaje MQTT no cupo en el buffer; no se publica");
+        return;
+    }
 
     esp_mqtt_client_publish(client, MQTT_TOPIC, msg, 0, 0, 0);
     ESP_LOGI(TAG, "Publicado: %s", msg);

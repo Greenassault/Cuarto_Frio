@@ -8,6 +8,8 @@
 #define NUM_RADARES         1
 
 // --- Bus RS485 para sensores XY-MD03 ---
+// Los 4 sensores comparten estos dos pines; cada uno se distingue por su
+// dirección Modbus (DIRECCIONES_TEMP en sensor_temp.c).
 #define PIN_RS485_TX        GPIO_NUM_17
 #define PIN_RS485_RX        GPIO_NUM_18
 

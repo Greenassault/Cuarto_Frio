@@ -72,6 +72,7 @@
     {% if error %}<div id="mensaje">{{ error }}</div>{% endif %}
     <div class="subtitulo" style="margin-top:12px">
       Sin fechas se muestran y descargan todas las lecturas. El CSV usa el mismo rango que ves en la tabla.
+      Se guardan los últimos 30 días. "--" en la tabla (o celda vacía en el CSV) = ese sensor no respondió.
     </div>
   </div>
 
@@ -82,20 +83,30 @@
         <thead>
           <tr>
             <th rowspan="2">Fecha y hora</th>
-            <th class="seccion separador" colspan="3">{{ nombres.1 }}</th>
-            <th class="seccion separador" colspan="3">{{ nombres.2 }}</th>
+            {% for nombre in nombres.values %}
+            <th class="seccion separador" colspan="2">{{ nombre }}</th>
+            {% endfor %}
+            <th class="seccion separador" colspan="{{ presencias|length }}">Presencia</th>
           </tr>
           <tr>
-            <th class="separador">Temperatura (°C)</th><th>Humedad (%)</th><th>Presencia</th>
-            <th class="separador">Temperatura (°C)</th><th>Humedad (%)</th><th>Presencia</th>
+            {% for nombre in nombres.values %}
+            <th class="separador">Temperatura (°C)</th><th>Humedad (%)</th>
+            {% endfor %}
+            {% for zona in presencias.values %}
+            <th{% if forloop.first %} class="separador"{% endif %}>{{ zona }}</th>
+            {% endfor %}
           </tr>
         </thead>
         <tbody>
-          {% for l in pagina %}
+          {% for l in filas_tabla %}
           <tr>
             <td><time class="fecha" datetime="{{ l.recibido_en|date:'c' }}">{{ l.recibido_en|date:'Y-m-d H:i:s' }} UTC</time></td>
-            <td class="separador">{{ l.temp_1|floatformat:1 }}</td><td>{{ l.hum_1|floatformat:1 }}</td><td>{{ l.presencia_1|yesno:"Sí,No" }}</td>
-            <td class="separador">{{ l.temp_2|floatformat:1 }}</td><td>{{ l.hum_2|floatformat:1 }}</td><td>{{ l.presencia_2|yesno:"Sí,No" }}</td>
+            {% for temp, hum in l.sensores %}
+            <td class="separador">{{ temp|floatformat:1|default:"--" }}</td><td>{{ hum|floatformat:1|default:"--" }}</td>
+            {% endfor %}
+            {% for hay in l.presencias %}
+            <td{% if forloop.first %} class="separador"{% endif %}>{{ hay|yesno:"Sí,No" }}</td>
+            {% endfor %}
           </tr>
           {% endfor %}
         </tbody>

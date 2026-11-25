@@ -8,6 +8,9 @@
 
 static const char *TAG = "MODULO_TEMP";
 static const uart_port_t UART_RS485 = UART_NUM_1;
+// Dirección Modbus de cada sensor XY-MD03, en el orden en que se publican:
+// posición 0 -> temp_1 (Sección A), 1 -> temp_2 (B), 2 -> temp_3 (C), 3 -> temp_4 (D).
+// Ver FORMATO_MQTT.md. Para cambiarle la dirección a un sensor: MODO_CAMBIAR_DIRECCION en main.c.
 static const uint8_t DIRECCIONES_TEMP[NUM_SENSORES_TEMP] = {1, 2, 3, 4};
 static const int TIEMPO_ESPERA_MS = 300;
 #define LARGO_MAX_RECEPCION 64

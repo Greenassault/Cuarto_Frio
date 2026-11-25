@@ -48,7 +48,12 @@
     table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
     th, td { padding: 8px 10px; text-align: right; border-bottom: 1px solid #334155; }
     th:first-child, td:first-child { text-align: left; }
-    th { color: #94a3b8; font-weight: 600; position: sticky; top: 0; background: #1e293b; }
+    th { color: #94a3b8; font-weight: 600; background: #1e293b; }
+    #tabla thead { position: sticky; top: 0; }
+    #tabla th, #tabla td { white-space: nowrap; }
+    th.seccion { text-align: center; color: #cbd5e1; }
+    th.separador, td.separador { border-left: 1px solid #334155; }
+    .nota-tabla { color: #94a3b8; font-size: 0.85rem; margin-top: 8px; }
     .scroll { max-height: 420px; overflow: auto; }
     .vacio { color: #94a3b8; }
   </style>
@@ -102,15 +107,19 @@
   <div class="bloque">
     <h2 id="titulo-tabla">Lecturas</h2>
     <div class="scroll"><div id="tabla"></div></div>
+    <div class="nota-tabla">"--" = ese sensor no respondió en esa lectura (aparece en rojo en el panel).</div>
   </div>
 
   {{ nombres|json_script:"nombres" }}
+  {{ presencias|json_script:"presencias" }}
   <script>
     const NOMBRES = JSON.parse(document.getElementById("nombres").textContent);
+    const PRESENCIAS = JSON.parse(document.getElementById("presencias").textContent);
+    const SENSORES = Object.keys(NOMBRES).map(Number);
     let datos = null;
     let presetHoras = 24;
     let variable = "temp";
-    let seccion = 0;                     // 0 = ambas secciones
+    let seccion = 0;                     // 0 = todas las secciones
 
     function fmt(iso) {
       return new Date(iso).toLocaleString("es-MX", {
@@ -184,10 +193,11 @@
         '</div><div class="chico">' + reducido + '</div></div>' +
         '<div class="dato"><h3>Interrupciones de datos</h3><div class="grande">' + datos.interrupciones.length +
         '</div><div class="chico">' + (mayor ? "El mayor: " + duracion(mayor) : "Sin interrupciones largas") + '</div></div>' +
-        '<div class="dato"><h3>' + NOMBRES[1] + ' (°C)</h3><div class="grande">' + num(r.temp_1_prom) +
-        ' prom.</div><div class="chico">mín ' + num(r.temp_1_min) + ' · máx ' + num(r.temp_1_max) + '</div></div>' +
-        '<div class="dato"><h3>' + NOMBRES[2] + ' (°C)</h3><div class="grande">' + num(r.temp_2_prom) +
-        ' prom.</div><div class="chico">mín ' + num(r.temp_2_min) + ' · máx ' + num(r.temp_2_max) + '</div></div>';
+        // Una tarjeta por sensor; solo cuentan sus lecturas con ok verdadero
+        SENSORES.map((n) =>
+          '<div class="dato"><h3>' + NOMBRES[n] + ' (°C)</h3><div class="grande">' + num(r["temp_" + n + "_prom"]) +
+          ' prom.</div><div class="chico">mín ' + num(r["temp_" + n + "_min"]) + ' · máx ' + num(r["temp_" + n + "_max"]) + '</div></div>'
+        ).join("");
     }
 
     const sombreaInterrupciones = {
@@ -263,15 +273,31 @@
       }
       titulo.textContent = "Lecturas más recientes del rango (" + datos.ultimas.length + " de " + datos.total + ")";
       const si = (b) => (b ? "Sí" : "No");
+      const numPres = Object.keys(PRESENCIAS);
       let filas = "";
       for (const l of datos.ultimas) {
-        filas += "<tr><td>" + fmt(l.recibido_en) + "</td>" +
-          "<td>" + l.temp_1.toFixed(1) + "</td><td>" + l.hum_1.toFixed(1) + "</td><td>" + si(l.presencia_1) + "</td>" +
-          "<td>" + l.temp_2.toFixed(1) + "</td><td>" + l.hum_2.toFixed(1) + "</td><td>" + si(l.presencia_2) + "</td></tr>";
+        filas += "<tr><td>" + fmt(l.recibido_en) + "</td>";
+        for (const n of SENSORES) {
+          // Si el sensor no respondió (ok falso), temp y hum vienen vacíos -> "--"
+          filas += '<td class="separador">' + num(l["temp_" + n]) + "</td><td>" + num(l["hum_" + n]) + "</td>";
+        }
+        numPres.forEach((p, i) => {
+          filas += "<td" + (i === 0 ? ' class="separador"' : "") + ">" + si(l["presencia_" + p]) + "</td>";
+        });
+        filas += "</tr>";
       }
-      cont.innerHTML = "<table><thead><tr><th>Hora</th>" +
-        "<th>Temp. " + NOMBRES[1] + " (°C)</th><th>Hum. " + NOMBRES[1] + " (%)</th><th>Presencia " + NOMBRES[1] + "</th>" +
-        "<th>Temp. " + NOMBRES[2] + " (°C)</th><th>Hum. " + NOMBRES[2] + " (%)</th><th>Presencia " + NOMBRES[2] + "</th></tr></thead><tbody>" +
+      // Encabezado en dos filas: nombre de cada sección arriba, Temperatura / Humedad abajo
+      let arriba = '<th rowspan="2">Hora</th>';
+      let abajo = "";
+      for (const n of SENSORES) {
+        arriba += '<th class="seccion separador" colspan="2">' + NOMBRES[n] + "</th>";
+        abajo += '<th class="separador">Temp. (°C)</th><th>Hum. (%)</th>';
+      }
+      arriba += '<th class="seccion separador" colspan="' + numPres.length + '">Presencia</th>';
+      numPres.forEach((p, i) => {
+        abajo += "<th" + (i === 0 ? ' class="separador"' : "") + ">" + PRESENCIAS[p] + "</th>";
+      });
+      cont.innerHTML = "<table><thead><tr>" + arriba + "</tr><tr>" + abajo + "</tr></thead><tbody>" +
         filas + "</tbody></table>";
     }
 

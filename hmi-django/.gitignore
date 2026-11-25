@@ -8,4 +8,4 @@ db.sqlite3-shm
 .env
 staticfiles/
 
-db.sqlite3.respaldo
+db.sqlite3.respaldo*
