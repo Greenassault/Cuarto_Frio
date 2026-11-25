@@ -62,6 +62,9 @@ static bool enviar_y_recibir(const uint8_t *mensaje, size_t largo_mensaje,
         return false;
     }
 
+    ESP_LOGI(TAG, "Dir %u: enviado (%u bytes):", mensaje[0], (unsigned)largo_mensaje);
+    ESP_LOG_BUFFER_HEX_LEVEL(TAG, mensaje, largo_mensaje, ESP_LOG_INFO);
+
     int escritos = uart_write_bytes(UART_RS485, mensaje, largo_mensaje);
     if (escritos != (int)largo_mensaje) {
         ESP_LOGE(TAG, "No se pudo enviar la solicitud Modbus");
@@ -88,23 +91,36 @@ static bool enviar_y_recibir(const uint8_t *mensaje, size_t largo_mensaje,
     }
 
     const uint8_t direccion = mensaje[0];
+    if (total == 0) {
+        ESP_LOGW(TAG, "Dir %u: timeout sin respuesta (%d ms)", direccion,
+                 TIEMPO_ESPERA_MS);
+        return false;
+    }
+
+    ESP_LOGI(TAG, "Dir %u: recibido (%d bytes):", direccion, total);
+    ESP_LOG_BUFFER_HEX_LEVEL(TAG, recibido, total, ESP_LOG_INFO);
+
+    bool crc_invalido = false;
     for (int i = 0; i + (int)largo_respuesta <= total; i++) {
-        if (recibido[i] == direccion && recibido[i + 1] == funcion &&
-            crc_correcto(&recibido[i], largo_respuesta)) {
-            if (i > 0) {
-                ESP_LOGD(TAG, "Dir %u: %d bytes de ruido antes de la respuesta",
-                         direccion, i);
+        if (recibido[i] == direccion && recibido[i + 1] == funcion) {
+            if (crc_correcto(&recibido[i], largo_respuesta)) {
+                if (i > 0) {
+                    ESP_LOGD(TAG, "Dir %u: %d bytes de ruido antes de la respuesta",
+                             direccion, i);
+                }
+                ESP_LOGI(TAG, "Dir %u: lectura correcta", direccion);
+                memcpy(respuesta, &recibido[i], largo_respuesta);
+                return true;
             }
-            memcpy(respuesta, &recibido[i], largo_respuesta);
-            return true;
+            crc_invalido = true;
         }
     }
 
-    // Diagnostico: muestra lo que llego para distinguir silencio de ruido.
-    ESP_LOGW(TAG, "Dir %u: sin respuesta valida (%d bytes recibidos)",
-             direccion, total);
-    if (total > 0) {
-        ESP_LOG_BUFFER_HEX_LEVEL(TAG, recibido, total, ESP_LOG_WARN);
+    if (crc_invalido) {
+        ESP_LOGW(TAG, "Dir %u: CRC invalido", direccion);
+    } else {
+        // Llegaron bytes, pero ninguno empieza con la direccion y funcion esperadas.
+        ESP_LOGW(TAG, "Dir %u: respuesta no reconocida (sin trama valida)", direccion);
     }
     return false;
 }

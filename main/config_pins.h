@@ -10,8 +10,11 @@
 // --- Bus RS485 para sensores XY-MD03 ---
 // Los 4 sensores comparten estos dos pines; cada uno se distingue por su
 // dirección Modbus (DIRECCIONES_TEMP en sensor_temp.c).
-#define PIN_RS485_TX        GPIO_NUM_17
-#define PIN_RS485_RX        GPIO_NUM_18
+// Cableado: GPIO18 va al pin RX del modulo y GPIO17 a su pin TX. Por eso el
+// TX del ESP32 es GPIO18 y el RX del ESP32 es GPIO17. Con esta asignacion el
+// equipo confirmo lecturas correctas en el hardware (25 nov 2026).
+#define PIN_RS485_TX        GPIO_NUM_18
+#define PIN_RS485_RX        GPIO_NUM_17
 
 // --- Pin del radar HLK-LD2410C (salida OUT) ---
 #define PIN_RADAR_1         GPIO_NUM_4
