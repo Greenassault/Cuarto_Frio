@@ -102,10 +102,10 @@ void app_main(void)
                 const lectura_temperatura_t *sensor = &datos_temp.sensores[i];
                 if (sensor->disponible) {
                     sensores_disponibles++;
-                    printf("Sensor %u: %.1f C, %.1f %%\n", sensor->direccion,
+                    printf("Sensor Temperatura %u: %.1f C, %.1f %%\n", sensor->direccion,
                            sensor->grados_c, sensor->humedad);
                 } else {
-                    printf("Sensor %u: no responde\n", sensor->direccion);
+                    printf("Sensor Temperatura %u: no responde\n", sensor->direccion);
                 }
             }
             mqtt_publisher_enviar(&datos_temp);
@@ -120,9 +120,12 @@ void app_main(void)
             }
         }
 
-        printf("Presencia radar GPIO%d: %s\n",
+        printf("Sensor Presencia %d: %s\n",
                PIN_RADAR_1,
                datos_radar.presencia_detectada[0] ? "detectada" : "no detectada");
+        printf("Sensor Presencia %d: %s\n",
+               PIN_RADAR_2,
+               datos_radar.presencia_detectada[1] ? "detectada" : "no detectada");
 
         vTaskDelay(pdMS_TO_TICKS(2000));
     }
