@@ -39,23 +39,61 @@ esp_err_t mqtt_publisher_init(void)
 {
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        ESP_ERROR_CHECK(nvs_flash_erase());
+        err = nvs_flash_erase();
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "No se pudo borrar NVS: %s", esp_err_to_name(err));
+            return err;
+        }
         err = nvs_flash_init();
     }
-    ESP_ERROR_CHECK(err);
-    ESP_ERROR_CHECK(esp_netif_init());
-    ESP_ERROR_CHECK(esp_event_loop_create_default());
-    ESP_ERROR_CHECK(example_connect());
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "No se pudo inicializar NVS: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    err = esp_netif_init();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "No se pudo inicializar esp-netif: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    err = esp_event_loop_create_default();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "No se pudo crear el loop de eventos: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    err = example_connect();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "No se pudo inicializar WiFi: %s", esp_err_to_name(err));
+        return err;
+    }
 
     esp_mqtt_client_config_t cfg = {
         .broker.address.uri = CONFIG_BROKER_URL,
     };
     client = esp_mqtt_client_init(&cfg);
     if (client == NULL) {
+        ESP_LOGE(TAG, "No se pudo crear el cliente MQTT");
         return ESP_FAIL;
     }
-    esp_mqtt_client_register_event(client, ESP_EVENT_ANY_ID, mqtt_event_handler, NULL);
-    return esp_mqtt_client_start(client);
+
+    err = esp_mqtt_client_register_event(client, ESP_EVENT_ANY_ID,
+                                         mqtt_event_handler, NULL);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "No se pudo registrar eventos MQTT: %s", esp_err_to_name(err));
+        esp_mqtt_client_destroy(client);
+        client = NULL;
+        return err;
+    }
+
+    err = esp_mqtt_client_start(client);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "No se pudo iniciar el cliente MQTT: %s", esp_err_to_name(err));
+        esp_mqtt_client_destroy(client);
+        client = NULL;
+    }
+    return err;
 }
 
 static void valores_sensor(const datos_temperatura_t *d, int i, float *temp, float *hum, bool *ok)
